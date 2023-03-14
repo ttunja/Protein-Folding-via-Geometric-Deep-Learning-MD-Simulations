@@ -1,0 +1,99 @@
+[2023-02-03 08:40:50,800][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-03 08:40:50,897][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-03 08:40:51,092][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-03 08:40:51,095][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-03 08:40:51,111][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-03 08:40:51,132][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-03 08:40:56,541][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-03 08:40:56,739][hydra.utils][INFO] - Starting training!
+[2023-02-03 08:42:17,526][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-03 08:42:17,528][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-03 10:09:43,514][hydra.utils][INFO] - Debug mode <cfg.train.pl_trainer.fast_dev_run=True>. Forcing debugger friendly configuration!
+[2023-02-03 10:09:43,525][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-03 10:09:43,627][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-03 10:10:44,366][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-03 10:10:44,368][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-03 10:10:44,383][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-03 10:10:44,406][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-03 10:10:50,178][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-03 10:10:50,382][hydra.utils][INFO] - Starting training!
+[2023-02-03 10:11:24,549][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-03 10:11:24,550][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-03 16:28:10,266][hydra.utils][INFO] - Starting testing!
+[2023-02-04 13:51:32,487][hydra.utils][INFO] - Debug mode <cfg.train.pl_trainer.fast_dev_run=True>. Forcing debugger friendly configuration!
+[2023-02-04 13:51:32,501][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-04 13:51:32,609][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-04 13:51:32,792][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-04 13:51:32,799][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-04 13:51:32,814][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-04 13:51:32,836][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-04 13:51:37,771][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-04 13:51:37,949][hydra.utils][INFO] - Starting training!
+[2023-02-04 13:52:42,043][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-04 13:52:42,044][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-04 14:09:25,756][hydra.utils][INFO] - Debug mode <cfg.train.pl_trainer.fast_dev_run=True>. Forcing debugger friendly configuration!
+[2023-02-04 14:09:25,776][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-04 14:09:25,878][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-04 14:09:26,066][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-04 14:09:26,071][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-04 14:09:26,085][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-04 14:09:26,104][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-04 14:09:30,092][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-04 14:09:30,269][hydra.utils][INFO] - Starting training!
+[2023-02-04 14:09:33,556][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-04 14:09:33,557][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-04 14:11:40,362][hydra.utils][INFO] - Debug mode <cfg.train.pl_trainer.fast_dev_run=True>. Forcing debugger friendly configuration!
+[2023-02-04 14:11:40,373][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-04 14:11:40,465][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-04 14:11:40,695][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-04 14:11:40,704][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-04 14:11:40,724][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-04 14:11:40,763][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-04 14:11:44,901][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-04 14:11:45,050][hydra.utils][INFO] - Starting training!
+[2023-02-04 14:11:47,214][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-04 14:11:47,216][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-04 14:12:35,022][hydra.utils][INFO] - Debug mode <cfg.train.pl_trainer.fast_dev_run=True>. Forcing debugger friendly configuration!
+[2023-02-04 14:12:35,032][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-04 14:12:35,131][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-04 14:12:35,335][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-04 14:12:35,338][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-04 14:12:35,356][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-04 14:12:35,378][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-04 14:12:39,283][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-04 14:12:39,495][hydra.utils][INFO] - Starting training!
+[2023-02-04 14:12:41,191][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-04 14:12:41,192][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-04 14:15:56,694][hydra.utils][INFO] - Debug mode <cfg.train.pl_trainer.fast_dev_run=True>. Forcing debugger friendly configuration!
+[2023-02-04 14:15:56,704][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-04 14:15:56,809][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-04 14:15:56,999][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-04 14:15:57,003][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-04 14:15:57,017][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-04 14:15:57,044][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-04 14:16:00,914][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-04 14:16:01,119][hydra.utils][INFO] - Starting training!
+[2023-02-04 14:16:04,905][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-04 14:16:04,906][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-04 14:18:57,624][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-04 14:18:57,658][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-04 14:18:57,767][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-04 14:18:57,767][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-04 14:18:57,774][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-04 14:18:57,782][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-04 14:19:01,974][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-04 14:19:02,043][hydra.utils][INFO] - Starting training!
+[2023-02-04 14:19:02,076][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-04 14:19:02,077][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-04 14:19:20,584][root][INFO] - Reducer buckets have been rebuilt in this iteration.
+[2023-02-04 14:50:50,190][hydra.utils][INFO] - Instantiating <graphwm.data.datamodule.PLDataModule>
+[2023-02-04 14:50:50,221][hydra.utils][INFO] - Instantiating <graphwm.model.GNS>
+[2023-02-04 14:50:50,366][hydra.utils][INFO] - Adding callback <LearningRateMonitor>
+[2023-02-04 14:50:50,366][hydra.utils][INFO] - Adding callback <ModelCheckpoint>
+[2023-02-04 14:50:50,375][hydra.utils][INFO] - Instantiating <WandbLogger>
+[2023-02-04 14:50:50,383][hydra.utils][INFO] - W&B is now watching <all>!
+[2023-02-04 14:50:55,127][hydra.utils][INFO] - Instantiating the Trainer
+[2023-02-04 14:50:55,198][hydra.utils][INFO] - Starting training!
+[2023-02-04 14:50:55,270][torch.distributed.distributed_c10d][INFO] - Added key: store_based_barrier_key:1 to store for rank: 0
+[2023-02-04 14:50:55,271][torch.distributed.distributed_c10d][INFO] - Rank 0: Completed store-based barrier for key:store_based_barrier_key:1 with 1 nodes.
+[2023-02-04 14:51:14,082][root][INFO] - Reducer buckets have been rebuilt in this iteration.
