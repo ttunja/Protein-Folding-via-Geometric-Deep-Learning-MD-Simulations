@@ -34,9 +34,6 @@ from torch_scatter import scatter
 
 # gn.graphs.GraphsTuple
 
-import torch
-import torch.nn as nn
-
 def activation_func(act:str="relu"):
     """The possible three activation functions are relu,
     leaky relu and softplus.
@@ -147,7 +144,7 @@ class TemporalInteractionNetwork(nn.Module):
         graph = self._node_block(graph)
         return graph
 
-class EncodeProcess(nn.Module):
+class EncodeProcessDecode(nn.Module):
 
     def __init__(self, 
                  node_dim: int, 
