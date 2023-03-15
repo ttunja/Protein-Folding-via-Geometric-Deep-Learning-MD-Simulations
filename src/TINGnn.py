@@ -50,8 +50,6 @@ def activation_func(act:str="relu"):
     else:
         return F.softplus(beta=1)
 
-
-
 def build_mlp(input_size, hidden_size, output_size, num_hidden_layers, 
               activation="relu", use_layer_norm=False):
     # Add input layer
@@ -71,189 +69,145 @@ def build_mlp(input_size, hidden_size, output_size, num_hidden_layers,
     
     return model
 
+class EdgeBlock(nn.Module):
 
-#######################################################################################################
-
-def build_mlp(in_dim, units, layers, out_dim, 
-              act='relu', layer_norm=False, act_final=False):
+    def __init__(self, net_kwargs):
+        super().__init__()
+        self._edge_mlp = build_mlp(**net_kwargs)
     
-    mods = [nn.Linear(in_dim, units), Act(act)]
-    for i in range(layers-1):
-        mods += [nn.Linear(units, units), Act(act)]
-    mods += [nn.Linear(units, out_dim)]
-    if act_final:
-        mods += [Act(act)]
-    if layer_norm:
-        mods += [nn.LayerNorm(out_dim)]
-    return nn.Sequential(*mods)
-
-class EdgeBlock(nn.module):
-    def __init__(self) -> None:
-        super().__init__()
-    def forward():
+    def forward(self, graph):
+        collected_edges = torch.cat([graph.edges, 
+                                     graph.nodes[graph.receivers], 
+                                     graph.nodes[graph.senders]], dim=1)
+        updated_edges = self._edge_mlp(collected_edges)
+    
+        return graph.replace(edges=updated_edges)
          
-class NodeNlock(nn.module):
-    def __init__(self) -> None:
+class NodeNlock(nn.Module):
+    def __init__(self,
+               net_kwargs,
+               reducer='sum'):
+        """
+        use node features and receiver messages. 
+        """
         super().__init__()
-    def forward():
+        self._node_mlp = build_mlp(**net_kwargs)
+        self._reducer = reducer
+    
+    def forward(self, graph):
+        receiver_agg = scatter(graph.edges, graph.receivers, dim=0, 
+                            dim_size=graph.nodes.shape[0], reduce=self._reducer)
+        nodes_to_collect = [graph.nodes, receiver_agg]
+        collected_nodes = torch.cat(nodes_to_collect, dim=1)
+        updated_nodes = self._node_mlp(collected_nodes)
+        return graph.replace(nodes=updated_nodes)
   
-class GraphIndependent(nn.module):
-    def __init__(self) -> None:
+class GraphIndependent(nn.Module):
+    def __init__(self, 
+                 edge_net_kwargs=None,
+                 node_net_kwargs=None):
         super().__init__()
-    def forward():
-class TemporalInteractionNetwork(nn.module):
+        self._edge_net_kwargs = edge_net_kwargs
+        self._node_net_kwargs = node_net_kwargs
+        
+        if self._edge_net_kwargs:
+            self._edge_mlp = build_mlp(**self._edge_net_kwargs)
+        if self._node_net_kwargs:
+            self._node_mlp = build_mlp(**self._node_net_kwargs)
   
-    def __init__(self) -> None:
+    def forward(self, graph):
+        
+        if self._edge_net_kwargs:
+            updated_edges = self._edge_mlp(graph.edges)
+        else:
+            updated_edges = graph.edges
+        if self._node_net_kwargs:
+            updated_nodes = self._node_mlp(graph.nodes)
+        else:
+            updated_nodes = graph.nodes
+        
+        return graph.replace(edges=updated_edges, nodes=updated_nodes)
+    
+class TemporalInteractionNetwork(nn.Module):
+    # Add Temporal features to Edge and/or Node block
+    def __init__(self,
+               edge_net_kwargs,
+               node_net_kwargs,
+               reducer='sum'):
+    # global is concat rather than using a global block
         super().__init__()
-    def forward():
+        self._edge_net_kwargs = edge_net_kwargs
+        self._node_net_kwargs = node_net_kwargs
+        self._reducer = reducer
+        self._edge_block = EdgeBlock(self._edge_net_kwargs)
+        self._node_block = NodeNlock(self._node_net_kwargs, self._reducer)
 
+    def forward(self, graph):
+        graph = self._edge_block(graph)
+        graph = self._node_block(graph)
+        return graph
 
+class EncodeProcess(nn.Module):
 
-from typing import Callable
-import graph_nets as gn
-import sonnet as snt
-import tensorflow as tf
+    def __init__(self, 
+                 node_dim: int, 
+                 edge_dim: int, 
+                 hidden_size: int, 
+                 num_hidden_layers: int, 
+                 latent_size: int, 
+                 num_message_passing_steps: int, 
+                 output_size: int):
+        super().__init__()
+        self._hidden_size = hidden_size
+        self._num_hidden_layers = num_hidden_layers
+        self._latent_size = latent_size
+        self._num_message_passing_steps = num_message_passing_steps
 
-Reducer = Callable[[tf.Tensor, tf.Tensor, tf.Tensor], tf.Tensor]
+        self._net_kwargs = {
+            'hidden_size': hidden_size,
+            'num_hidden_layers': num_hidden_layers,
+            'output_size': latent_size,
+            'use_layer_norm': True
+        }
+        self._out_net_kwargs = {
+        'input_size': latent_size,
+        'hidden_size': hidden_size,
+        'num_hidden_layers': num_hidden_layers,
+        'output_size': output_size
+        }   
 
+        self._encode = GraphIndependent(
+            edge_net_kwargs=dict(input_size=edge_dim, **self._net_kwargs), 
+            node_net_kwargs=dict(input_size=node_dim, **self._net_kwargs))
+        self._process = nn.ModuleList([
+            TemporalInteractionNetwork(
+                edge_net_kwargs=dict(input_size=latent_size * 3, **self._net_kwargs), 
+                node_net_kwargs=dict(input_size=latent_size * 2, **self._net_kwargs))
+            for _ in range(self._num_message_passing_steps)
+        ])
 
-def build_mlp(
-    hidden_size: int, num_hidden_layers: int, output_size: int) -> snt.Module:
-  """Builds an MLP."""
-  return snt.nets.MLP(
-      output_sizes=[hidden_size] * num_hidden_layers + [output_size])  # pytype: disable=bad-return-type  # gen-stub-imports
+        self._decode = build_mlp(**self._out_net_kwargs)
 
+    def forward(self, input_graph, return_latent=False):
+        
+        if input_graph.globals is not None:
+            input_graph = input_graph.replace(
+                nodes=torch.cat([input_graph.nodes, torch.repeat_interleave(
+                                    input_graph.globals, input_graph.n_node, dim=0)], dim=1), 
+                globals=None)
+        latent_graph = self._encode(input_graph)
+        
+        # Process
+        for process_layer in self._process:
+            _latent_graph = process_layer(latent_graph)
+            # residual connection
+            _latent_graph = _latent_graph.replace(
+                nodes=_latent_graph.nodes+latent_graph.nodes,
+                edges=_latent_graph.edges+latent_graph.edges)
+            latent_graph = _latent_graph
 
-class EncodeProcessDecode(snt.AbstractModule):
-  """Encode-Process-Decode function approximator for learnable simulator."""
-
-  def __init__(
-      self,
-      latent_size: int,
-      mlp_hidden_size: int,
-      mlp_num_hidden_layers: int,
-      num_message_passing_steps: int,
-      output_size: int,
-      reducer: Reducer = tf.math.unsorted_segment_sum,
-      name: str = "EncodeProcessDecode"):
-    """Inits the model.
-    Args:
-      latent_size: Size of the node and edge latent representations.
-      mlp_hidden_size: Hidden layer size for all MLPs.
-      mlp_num_hidden_layers: Number of hidden layers in all MLPs.
-      num_message_passing_steps: Number of message passing steps.
-      output_size: Output size of the decode node representations as required
-        by the downstream update function.
-      reducer: Reduction to be used when aggregating the edges in the nodes in
-        the interaction network. This should be a callable whose signature
-        matches tf.math.unsorted_segment_sum.
-      name: Name of the model.
-    """
-
-    super().__init__(name=name)
-
-    self._latent_size = latent_size
-    self._mlp_hidden_size = mlp_hidden_size
-    self._mlp_num_hidden_layers = mlp_num_hidden_layers
-    self._num_message_passing_steps = num_message_passing_steps
-    self._output_size = output_size
-    self._reducer = reducer
-
-    with self._enter_variable_scope():
-      self._networks_builder()
-
-  def _build(self, input_graph: gn.graphs.GraphsTuple) -> tf.Tensor:
-    """Forward pass of the learnable dynamics model."""
-
-    # Encode the input_graph.
-    latent_graph_0 = self._encode(input_graph)
-
-    # Do `m` message passing steps in the latent graphs.
-    latent_graph_m = self._process(latent_graph_0)
-
-    # Decode from the last latent graph.
-    return self._decode(latent_graph_m)
-
-  def _networks_builder(self):
-    """Builds the networks."""
-
-    def build_mlp_with_layer_norm():
-      mlp = build_mlp(
-          hidden_size=self._mlp_hidden_size,
-          num_hidden_layers=self._mlp_num_hidden_layers,
-          output_size=self._latent_size)
-      return snt.Sequential([mlp, snt.LayerNorm()])
-
-    # The encoder graph network independently encodes edge and node features.
-    encoder_kwargs = dict(
-        edge_model_fn=build_mlp_with_layer_norm,
-        node_model_fn=build_mlp_with_layer_norm)
-    self._encoder_network = gn.modules.GraphIndependent(**encoder_kwargs)
-
-    # Create `num_message_passing_steps` graph networks with unshared parameters
-    # that update the node and edge latent features.
-    # Note that we can use `modules.InteractionNetwork` because
-    # it also outputs the messages as updated edge latent features.
-    self._processor_networks = []
-    for _ in range(self._num_message_passing_steps):
-      self._processor_networks.append(
-          gn.modules.InteractionNetwork(
-              edge_model_fn=build_mlp_with_layer_norm,
-              node_model_fn=build_mlp_with_layer_norm,
-              reducer=self._reducer))
-
-    # The decoder MLP decodes node latent features into the output size.
-    self._decoder_network = build_mlp(
-        hidden_size=self._mlp_hidden_size,
-        num_hidden_layers=self._mlp_num_hidden_layers,
-        output_size=self._output_size)
-
-  def _encode(
-      self, input_graph: gn.graphs.GraphsTuple) -> gn.graphs.GraphsTuple:
-    """Encodes the input graph features into a latent graph."""
-
-    # Copy the globals to all of the nodes, if applicable.
-    if input_graph.globals is not None:
-      broadcasted_globals = gn.blocks.broadcast_globals_to_nodes(input_graph)
-      input_graph = input_graph.replace(
-          nodes=tf.concat([input_graph.nodes, broadcasted_globals], axis=-1),
-          globals=None)
-
-    # Encode the node and edge features.
-    latent_graph_0 = self._encoder_network(input_graph)
-    return latent_graph_0
-
-  def _process(
-      self, latent_graph_0: gn.graphs.GraphsTuple) -> gn.graphs.GraphsTuple:
-    """Processes the latent graph with several steps of message passing."""
-
-    # Do `m` message passing steps in the latent graphs.
-    # (In the shared parameters case, just reuse the same `processor_network`)
-    latent_graph_prev_k = latent_graph_0
-    latent_graph_k = latent_graph_0
-    for processor_network_k in self._processor_networks:
-      latent_graph_k = self._process_step(
-          processor_network_k, latent_graph_prev_k)
-      latent_graph_prev_k = latent_graph_k
-
-    latent_graph_m = latent_graph_k
-    return latent_graph_m
-
-  def _process_step(
-      self, processor_network_k: snt.Module,
-      latent_graph_prev_k: gn.graphs.GraphsTuple) -> gn.graphs.GraphsTuple:
-    """Single step of message passing with node/edge residual connections."""
-
-    # One step of message passing.
-    latent_graph_k = processor_network_k(latent_graph_prev_k)
-
-    # Add residuals.
-    latent_graph_k = latent_graph_k.replace(
-        nodes=latent_graph_k.nodes+latent_graph_prev_k.nodes,
-        edges=latent_graph_k.edges+latent_graph_prev_k.edges)
-    return latent_graph_k
-
-  def _decode(self, latent_graph: gn.graphs.GraphsTuple) -> tf.Tensor:
-    """Decodes from the latent graph."""
-    return self._decoder_network(latent_graph.nodes)
-  
+        output = self._decode(latent_graph.nodes)
+        if return_latent:
+            return output, latent_graph
+        else:
+            return output
