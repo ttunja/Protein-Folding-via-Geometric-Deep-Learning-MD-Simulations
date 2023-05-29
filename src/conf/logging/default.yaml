@@ -1,0 +1,21 @@
+# log frequency
+val_check_interval: 100.0
+# val_check_interval: 100.0
+progress_bar_refresh_rate: 10
+
+wandb:
+  name: ${expname}
+  group: ${expname}
+  save_dir: ${workdir}
+  project: protein_folding
+  entity: null
+  log_model: True
+  mode: 'online'
+
+wandb_watch:
+  log: 'all'
+  log_freq: 100
+
+lr_monitor:
+  logging_interval: "step"
+  log_momentum: False

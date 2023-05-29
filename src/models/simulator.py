@@ -1,10 +1,11 @@
-import graph_nets as gn
-from TINGnn import EncodeProcessDecode
+import models.graphs as graphs
+from models.TINGnn import EncodeProcessDecode
 import math
 import hydra
 import torch
 import torch.nn as nn
-import utils
+from torch.distributions.normal import Normal
+from utils import utils
 
 STD_EPSILON = 1e-8
 
@@ -21,7 +22,6 @@ class LearnedSimulator(nn.Module):
         num_bond_types,
         particle_type_embedding_size,
         edge_type_embedding_size,
-        particle_types,
         sequence_len,
         noise_std
         ):
@@ -43,16 +43,16 @@ class LearnedSimulator(nn.Module):
         """
         super().__init__()
 
+        self.soft_plus = torch.nn.Softplus()
         self._connectivity_radius = connectivity_radius
         self._num_bond_types = num_bond_types
-        self._particle_types = particle_types
         self.particle_masses = torch.FloatTensor(utils.ATOM_MASSES)
         # self._normalization_stats = normalization_stats
         self._sequence_len = sequence_len
         self._noise_std = noise_std
         
         self._graph_network = EncodeProcessDecode(
-                node_dim=3*(sequence_len-1) + particle_type_embedding_size,
+                node_dim=3*(sequence_len-1) + particle_type_embedding_size + 1, # we use sequence_len -1 + 1=use_weights for training
                 edge_dim=3 + 1 + edge_type_embedding_size,
                 output_size=3, **graph_network_kwargs)
 
@@ -77,7 +77,7 @@ class LearnedSimulator(nn.Module):
                                                  self._noise_std, use_rw=True)
         noisy_position_seq = position_seq + sampled_noise
         noisy_next_pos = next_pos + sampled_noise[:, -1]
-        weights = self.particle_masses[self._particle_types]
+        weights = self.particle_masses[particle_types]
         input_graph = self._encoder_preprocessor(noisy_position_seq, particle_types, n_node, 
                                                  bonds, bond_types, weights=weights)
 
@@ -90,7 +90,7 @@ class LearnedSimulator(nn.Module):
     def predict(self, position_seq, particle_types, 
                 n_node, bonds=None, bond_types=None):
         
-        weights = self.particle_masses[self._particle_types]
+        weights = self.particle_masses[particle_types]
         input_graph = self._encoder_preprocessor(position_seq, particle_types, n_node, 
                                                  bonds, bond_types, weights=weights)
 
@@ -111,7 +111,7 @@ class LearnedSimulator(nn.Module):
                                     [velocity_sequence.shape[0], 
                                      math.prod(velocity_sequence.shape[1:])])
         if weights is not None:
-            node_features = torch.cat([flat_vel_seq, particle_type_embeddings, weights], dim=-1)
+            node_features = torch.cat([flat_vel_seq, particle_type_embeddings, weights.view(-1, 1)], dim=-1)
         else:
             node_features = torch.cat([flat_vel_seq, particle_type_embeddings], dim=-1)
         
@@ -119,17 +119,22 @@ class LearnedSimulator(nn.Module):
         # NOT SURE            
         # senders, receivers = bonds[:, 0], bonds[:, 1]
         # edge_embeddings = ptype_embeddings[senders] + ptype_embeddings[receivers]
-        
+        edge_embeddings = None
         if bond_types is not None and self._num_bond_types > 0:
             edge_embeddings = self.bond_type_embedding(bond_types)
         most_recent_position = position_seq[:, -1]
         # Get connectivity of the graph.
         senders, receivers, displacements, distances, edge_types = utils.compute_connectivity(
                             most_recent_position, n_node, self._connectivity_radius, bonds)
-        edge_embeddings += self.edge_type_embedding(edge_types)
+        # TODO change this part of code
+        if edge_embeddings is not None:
+            edge_embeddings += self.edge_type_embedding(edge_types)
+        else:
+            edge_embeddings = self.edge_type_embedding(edge_types)
+
         edge_features = torch.cat([displacements, distances, edge_embeddings], dim=-1)
         
-        return gn.graphs.GraphsTuple(
+        return graphs.GraphsTuple(
             nodes=node_features,
             edges=edge_features,
             edge_type=edge_types,
@@ -164,52 +169,5 @@ class LearnedSimulator(nn.Module):
         return acceleration
 
 
-    def time_diff(input_sequence):
+    def time_diff(self, input_sequence):
         return input_sequence[:, 1:] - input_sequence[:, :-1]
-
-
-
-###########################################################################################
-    # def get_predicted_and_target_normalized_accelerations(
-    #     self, next_position, position_seq_noise, position_seq,
-    #     n_particles_per_example, global_context=None, particle_types=None):  # pylint: disable=g-doc-args
-    #     """Produces normalized and predicted acceleration targets.
-    #     Args:
-    #     next_position: Tensor of shape [num_particles_in_batch, num_dimensions]
-    #         with the positions the model should output given the inputs.
-    #     position_seq_noise: Tensor of the same shape as `position_seq`
-    #         with the noise to apply to each particle.
-    #     position_seq, n_node, global_context, particle_types: Inputs to the
-    #         model as defined by `_build`.
-    #     Returns:
-    #     Tensors of shape [num_particles_in_batch, num_dimensions] with the
-    #         predicted and target normalized accelerations.
-    #     """
-
-    #     # Add noise to the input position sequence.
-    #     noisy_position_seq = position_seq + position_seq_noise
-
-    #     # Perform the forward pass with the noisy position sequence.
-    #     input_graphs_tuple = self._encoder_preprocessor(
-    #         noisy_position_seq, n_particles_per_example, global_context,
-    #         particle_types)
-    #     predicted_normalized_acceleration = self._graph_network(input_graphs_tuple)
-
-    #     # Calculate the target acceleration, using an `adjusted_next_position `that
-    #     # is shifted by the noise in the last input position.
-    #     next_position_adjusted = next_position + position_seq_noise[:, -1]
-    #     target_normalized_acceleration = self._inverse_decoder_postprocessor(
-    #         next_position_adjusted, noisy_position_seq)
-    #     # As a result the inverted Euler update in the `_inverse_decoder` produces:
-    #     # * A target acceleration that does not explicitly correct for the noise in
-    #     #   the input positions, as the `next_position_adjusted` is different
-    #     #   from the true `next_position`.
-    #     # * A target acceleration that exactly corrects noise in the input velocity
-    #     #   since the target next velocity calculated by the inverse Euler update
-    #     #   as `next_position_adjusted - noisy_position_seq[:,-1]`
-    #     #   matches the ground truth next velocity (noise cancels out).
-
-    #     return predicted_normalized_acceleration, target_normalized_acceleration
-
-# TODO FINISH _encoder_preprocessor(), _init_, add noise (utils), provjeri embeddings jos jednom
-# TODO train.py - use hydra, 
