@@ -1,0 +1,15 @@
+21.3.2023
+1) Overfit on one trajectory of chignolin and see if we were able to learn it (test the same trajectory)
+2) Implement EMA
+
+22.3.2023
+1) Analyze real accelerations of one trajectory using 3d plots and distribution plots
+2) Visualize by specific element (N, H, C, O)
+3) Make a visualization script for prediction accelerations
+
+EXPERIMENTS
+- Try MLCGMD for protein data (didnt work good)
+- Try MLCGMD determenistic (didnt work good)
+- write your architectures (not stochastic)
+- implement stochastic acceleration into your architecture (didnt work good, mse between position coordinates too big)
+- Run model without hydrogens to see if it is easier to learn

@@ -1,5 +1,7 @@
 import os
-import json
+from pathlib import Path
+import time
+import copy
 import numpy as np
 import torch
 import h5py
@@ -28,7 +30,17 @@ def load_data_w_idx(data_names, path, select_idx):
   hf.close()
   return data
 
-
+def dict_collate_fn(batch):
+    batch = {k: torch.cat([d[k] for d in batch], dim=0) for k in batch[0].keys()}
+    
+    # bonds add bonds offsets
+    if 'bonds' in batch.keys():
+        index_offsets = torch.cumsum(batch['n_bond'], -1)
+        node_offsets = torch.cumsum(batch['n_particle'], -1)
+        for idx in range(len(index_offsets)-1):
+            batch['bonds'][index_offsets[idx]:index_offsets[idx+1]] += node_offsets[idx]
+  
+    return batch
 
 def fix_topology(topology):
 
@@ -83,64 +95,10 @@ def fix_traj(traj):
     print(time1 - time0)
     return new_traj
 
-def topology_to_json(topology):
-    import json
-    topology_object = topology
-    try:
-        topology_dict = {
-            'chains': [],
-            'bonds': []
-        }
 
-        for chain in topology_object.chains:
-            chain_dict = {
-                'residues': [],
-                'index': int(chain.index)
-            }
-            for residue in chain.residues:
-                residue_dict = {
-                    'index': int(residue.index),
-                    'name': str(residue.name),
-                    'atoms': [],
-                    "resSeq": int(residue.resSeq),
-                    "segmentID": str(residue.segment_id)
-                }
-
-                for atom in residue.atoms:
-
-                    try:
-                        element_symbol_string = str(atom.element.symbol)
-                    except AttributeError:
-                        element_symbol_string = ""
-
-                    residue_dict['atoms'].append({
-                        'index': int(atom.index),
-                        'name': str(atom.name),
-                        'element': element_symbol_string
-                    })
-                chain_dict['residues'].append(residue_dict)
-            topology_dict['chains'].append(chain_dict)
-
-        for atom1, atom2 in topology_object.bonds:
-            topology_dict['bonds'].append([
-                int(atom1.index),
-                int(atom2.index)
-            ])
-
-    except AttributeError as e:
-        raise AttributeError('topology_object fails to implement the'
-            'chains() -> residue() -> atoms() and bond() protocol. '
-            'Specifically, we encountered the following %s' % e)
-
-
-    data = json.dumps(topology_dict)
-    if not isinstance(data, bytes):
-        data = data.encode('ascii') 
-    
-    return data
-
-    # if self.tables.__version__ >= '3.0.0':
-    #     self._handle.create_array(where='/', name='topology', obj=[data])
-    # else:
-    #     self._handle.createArray(where='/', name='topology', object=[data])
-
+def load_pt(datadir:str, rollout:str):
+  df = torch.load(os.path.join(datadir, rollout+".pt"))
+  data = df['coordinates'].permute(1, 0, 2).detach().cpu().numpy()
+  os.makedirs(os.path.join(datadir, rollout), exist_ok=True)
+  if not Path(str(os.path.join(datadir, rollout, 'bond.h5'))).exists():
+      store_data(['coordinates'], [data], os.path.join(datadir, rollout, 'coordinates.h5'))
