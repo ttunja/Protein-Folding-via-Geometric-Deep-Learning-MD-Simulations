@@ -35,7 +35,7 @@ datamodule:
         traj_len: ${data.traj_len}
   
   num_workers:
-    train: 8
+    train: 4
     val: 4
     test: 4
 

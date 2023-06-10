@@ -55,8 +55,10 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
                                                   batch['particle_types'], batch['n_particle'], 
                                                   batch['bonds'], batch.get('bond_types'))
             
-        loss = loss_fn(acceleration, target_acceleration)
-        new_position_pred = model._decoder_postprocessor(target_acceleration, batch['position'])
+        # loss = loss_fn(acceleration, target_acceleration)
+        new_position_target = model._decoder_postprocessor(target_acceleration, batch['position'])
+        new_position_pred = model._decoder_postprocessor(acceleration, batch['position'])
+        loss = loss_fn(new_position_pred, new_position_target)
         
         # loss = -acceleration.log_prob(target_acceleration).mean()
         
@@ -70,7 +72,7 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         loss_1000.append(loss)
         if batch_num % 100 == 0:
             new_position_pred = model._decoder_postprocessor(acceleration, batch['position'])
-            name_pred = f"pred_batch_{batch_num}_epoch_{epoch}"
+            name_pred = f"pred__huberloss_batch_{batch_num}_epoch_{epoch}"
             plot_3d_graph(new_position_pred, batch, name=name_pred)
             new_position_target = model._decoder_postprocessor(target_acceleration, batch['position'])
             name_target = f"target_batch_{batch_num}_epoch_{epoch}"
@@ -90,6 +92,52 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
 
     print(f"Epoch loss={sum(losses):.3f}")
     return losses, all_target_acc
+
+####################################################################################################################################
+############## NEW #################################################################################################################
+import torch
+import torch.nn as nn
+
+def distance_matrix(x):
+    """
+    x: Tensor of shape (N, 3) where N is the number of atoms.
+    This function returns a matrix of shape (N, N) where the entry at (i, j) is
+    the Euclidean distance between atoms i and j.
+    """
+    # Expand x along the second dimension
+    x = x.unsqueeze(1)
+
+    # Calculate the pairwise distance in one line by taking advantage of broadcasting
+    dist = torch.sqrt(torch.sum((x - x.transpose(0, 1)) ** 2, -1)+1e-8)
+
+    return dist
+
+# Define the loss function
+class MatrixLoss(nn.Module):
+    def __init__(self):
+        super(MatrixLoss, self).__init__()
+        self.mae = nn.L1Loss()
+        # self.mae = torch.nn.MSELoss()
+
+    def forward(self, pred, target):
+        pred_dist_mat = distance_matrix(pred)
+        target_dist_mat = distance_matrix(target)
+        return self.mae(pred_dist_mat, target_dist_mat)
+
+# Assuming you have your predictions and target
+# predictions = torch.randn(10, 3, requires_grad=True)  # 10 atoms, 3D coordinates
+# target = torch.randn(10, 3)
+
+# # Create the loss function
+# loss_func = MatrixLoss()
+
+# # Calculate the loss
+# loss = loss_func(predictions, target)
+
+# # Backpropagate
+# loss.backward()
+####################################################################################################################################
+####################################################################################################################################
 
 @hydra.main(config_path="conf", config_name="chignolin")
 def main(cfg: DictConfig) -> None:
@@ -115,7 +163,10 @@ def main(cfg: DictConfig) -> None:
     model = model.to(device)
     ema = EMA(0.995)
     ema_model = copy.deepcopy(model).eval().requires_grad_(False)
-    loss_fn = torch.nn.MSELoss()
+    # loss_fn = torch.nn.MSELoss()
+    # loss_fn = torch.nn.L1Loss()
+    # loss_fn = torch.nn.HuberLoss()
+    loss_fn = MatrixLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optim.optimizer.lr)   
 
     epochs = 50
@@ -124,5 +175,5 @@ def main(cfg: DictConfig) -> None:
         train_loop(train_dataloader, model, ema, ema_model, loss_fn, optimizer, epoch=t, device=device)
 
 if __name__=="__main__":
-    import ipdb; ipdb.set_trace()
+    # import ipdb; ipdb.set_trace()
     main()
