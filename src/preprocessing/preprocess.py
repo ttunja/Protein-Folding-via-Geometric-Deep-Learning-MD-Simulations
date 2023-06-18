@@ -3,7 +3,7 @@ import pandas as pd
 import mdtraj
 import time 
 from pathlib import Path
-from preprocessing_utils import store_data, topology_to_json, load_data
+from preprocessing_utils import store_data
 import copy
 import numpy as np
 import argparse
@@ -25,8 +25,8 @@ def load_protein_data(data_dir, topology_dir):
 
     trajectory = mdtraj.load_dcd(data_dir, top=topology_dir)
     
-    trajectory = trajectory.center_coordinates(mass_weighted=False)
-    trajectory = trajectory.superpose(trajectory[0])
+    # trajectory = trajectory.center_coordinates(mass_weighted=False)
+    # trajectory = trajectory.superpose(trajectory[0])
     # scale units to A
     atom_coords = trajectory.xyz * 10.
     lattices = trajectory.unitcell_lengths * 10.
@@ -77,12 +77,12 @@ if __name__=='__main__':
     import ipdb; ipdb.set_trace()
     parser = argparse.ArgumentParser()
     parser.add_argument('--dir', '-d', type=str, required=True)
-    parser.add_argument('--top_dir', '-td', type=str, required=True)
+    parser.add_argument('--top_path', '-td', type=str, required=True)
     parser.add_argument('--save_dir', '-sd', type=str, required=True)
 
     args = parser.parse_args()
     data_dir = str(args.dir)
-    topology_dir = str(args.top_dir)
+    topology_path = str(args.top_path)
     data_save_dir = str(args.save_dir)
 
-    preprocess_traj(data_dir, topology_dir, data_save_dir)
+    preprocess_traj(data_dir, topology_path, data_save_dir)

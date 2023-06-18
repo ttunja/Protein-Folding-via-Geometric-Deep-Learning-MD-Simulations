@@ -14,6 +14,7 @@ from utils.visualizations import plot_3d_graph
 import models.simulator as simulator
 from models.TINGnn import EMA
 import preprocessing.data as data
+from utils.custom_losses import MatrixLoss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -93,51 +94,6 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
     print(f"Epoch loss={sum(losses):.3f}")
     return losses, all_target_acc
 
-####################################################################################################################################
-############## NEW #################################################################################################################
-import torch
-import torch.nn as nn
-
-def distance_matrix(x):
-    """
-    x: Tensor of shape (N, 3) where N is the number of atoms.
-    This function returns a matrix of shape (N, N) where the entry at (i, j) is
-    the Euclidean distance between atoms i and j.
-    """
-    # Expand x along the second dimension
-    x = x.unsqueeze(1)
-
-    # Calculate the pairwise distance in one line by taking advantage of broadcasting
-    dist = torch.sqrt(torch.sum((x - x.transpose(0, 1)) ** 2, -1)+1e-8)
-
-    return dist
-
-# Define the loss function
-class MatrixLoss(nn.Module):
-    def __init__(self):
-        super(MatrixLoss, self).__init__()
-        self.mae = nn.L1Loss()
-        # self.mae = torch.nn.MSELoss()
-
-    def forward(self, pred, target):
-        pred_dist_mat = distance_matrix(pred)
-        target_dist_mat = distance_matrix(target)
-        return self.mae(pred_dist_mat, target_dist_mat)
-
-# Assuming you have your predictions and target
-# predictions = torch.randn(10, 3, requires_grad=True)  # 10 atoms, 3D coordinates
-# target = torch.randn(10, 3)
-
-# # Create the loss function
-# loss_func = MatrixLoss()
-
-# # Calculate the loss
-# loss = loss_func(predictions, target)
-
-# # Backpropagate
-# loss.backward()
-####################################################################################################################################
-####################################################################################################################################
 
 @hydra.main(config_path="conf", config_name="chignolin")
 def main(cfg: DictConfig) -> None:
@@ -175,5 +131,5 @@ def main(cfg: DictConfig) -> None:
         train_loop(train_dataloader, model, ema, ema_model, loss_fn, optimizer, epoch=t, device=device)
 
 if __name__=="__main__":
-    # import ipdb; ipdb.set_trace()
+    import ipdb; ipdb.set_trace()
     main()

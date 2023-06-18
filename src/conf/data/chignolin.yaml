@@ -1,5 +1,6 @@
 name: chignolin
 dir: ${oc.env:PROTEIN_DATASET_DIR}
+# dir: D:/PROTEIN-FOLDING-DATA/Chignolin/DESRES-Trajectory_CLN025-0-protein/No_center_no_superpose
 batch_size: 10
 traj_len: 10000
 shuffle: True
