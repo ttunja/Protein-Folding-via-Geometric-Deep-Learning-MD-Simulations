@@ -15,3 +15,5 @@ EXPERIMENTS
 - Run model without hydrogens to see if it is easier to learn
 - Try to overfit using only 10 000 samples (10 000 timeframes) - not succeeded
 - Implement my own losses (one of them being Matrix loss which takes distance errors between all of the atoms)
+- Implement coarse-granining
+- try CG approach on Chignolin with 10 and 20 beads
