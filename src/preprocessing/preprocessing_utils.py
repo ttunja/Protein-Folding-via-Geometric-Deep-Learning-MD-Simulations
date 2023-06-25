@@ -7,28 +7,28 @@ import torch
 import h5py
 
 def store_data(data_names, data, path):
-  hf = h5py.File(path, 'w')
-  for i in range(len(data_names)):
-    hf.create_dataset(data_names[i], data=data[i])
-  hf.close()
+    hf = h5py.File(path, 'w')
+    for i in range(len(data_names)):
+        hf.create_dataset(data_names[i], data=data[i])
+    hf.close()
 
 def load_data(data_names, path):
-  hf = h5py.File(path, 'r')
-  data = []
-  for i in range(len(data_names)):
-    d = np.array(hf.get(data_names[i]))
-    data.append(d)
-  hf.close()
-  return data
+    hf = h5py.File(path, 'r')
+    data = []
+    for i in range(len(data_names)):
+        d = np.array(hf.get(data_names[i]))
+        data.append(d)
+    hf.close()
+    return data
 
 def load_data_w_idx(data_names, path, select_idx):
-  hf = h5py.File(path, 'r')
-  data = []
-  for i in range(len(data_names)):
-    d = np.array(hf.get(data_names[i])[select_idx])
-    data.append(d)
-  hf.close()
-  return data
+    hf = h5py.File(path, 'r')
+    data = []
+    for i in range(len(data_names)):
+        d = np.array(hf.get(data_names[i])[select_idx])
+        data.append(d)
+    hf.close()
+    return data
 
 def dict_collate_fn(batch):
     batch = {k: torch.cat([d[k] for d in batch], dim=0) for k in batch[0].keys()}
@@ -39,7 +39,21 @@ def dict_collate_fn(batch):
         node_offsets = torch.cumsum(batch['n_particle'], -1)
         for idx in range(len(index_offsets)-1):
             batch['bonds'][index_offsets[idx]:index_offsets[idx+1]] += node_offsets[idx]
-  
+        
+    # GROUPING: add cluster offsets
+    if 'n_keypoint' in batch:
+        if 'n_component' in batch:
+            component_offsets = torch.cumsum(batch['n_component'], -1)
+        index_offsets = torch.cumsum(batch['n_keypoint'], -1)
+        node_offsets = torch.cumsum(batch['n_particle'], -1)
+        bond_offset = torch.cumsum(batch['n_cg_bond'], -1)
+        for idx in range(len(index_offsets)-1):
+            if 'n_component' in batch:
+                batch['component'][node_offsets[idx]:node_offsets[idx+1]] += component_offsets[idx]
+            if 'keypoint' in batch:
+                batch['keypoint'][index_offsets[idx]:index_offsets[idx+1]] += node_offsets[idx]
+            batch['cluster'][node_offsets[idx]:node_offsets[idx+1]] += index_offsets[idx]
+            batch['cg_bonds'][bond_offset[idx]:bond_offset[idx+1]] += index_offsets[idx] 
     return batch
 
 def fix_topology(topology):
@@ -97,8 +111,8 @@ def fix_traj(traj):
 
 
 def load_pt(datadir:str, rollout:str):
-  df = torch.load(os.path.join(datadir, rollout+".pt"))
-  data = df['coordinates'].permute(1, 0, 2).detach().cpu().numpy()
-  os.makedirs(os.path.join(datadir, rollout), exist_ok=True)
-  if not Path(str(os.path.join(datadir, rollout, 'bond.h5'))).exists():
-      store_data(['coordinates'], [data], os.path.join(datadir, rollout, 'coordinates.h5'))
+    df = torch.load(os.path.join(datadir, rollout+".pt"))
+    data = df['coordinates'].permute(1, 0, 2).detach().cpu().numpy()
+    os.makedirs(os.path.join(datadir, rollout), exist_ok=True)
+    if not Path(str(os.path.join(datadir, rollout, 'bond.h5'))).exists():
+        store_data(['coordinates'], [data], os.path.join(datadir, rollout, 'coordinates.h5'))

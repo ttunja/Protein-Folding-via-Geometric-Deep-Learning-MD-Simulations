@@ -5,7 +5,7 @@ from preprocessing.preprocessing_utils import load_data, load_data_w_idx
 
 from torch.utils.data import Dataset
 import utils.utils as utils
-
+from preprocessing.clustering import metis_cluster
 
 class MDDataset(Dataset):
   """
@@ -21,8 +21,10 @@ class MDDataset(Dataset):
                split, 
                mode='train',
                seq_len=30, 
-               dilation=1, 
-               traj_len=10000
+               dilation=1,
+               grouping=1, 
+               traj_len=10000,
+               recursive_metis=False
                ):
     if isinstance(directory, str):
       directory = Path(directory)
@@ -36,6 +38,8 @@ class MDDataset(Dataset):
       # +1 for count the target pos
       self.seq_len += 1
     self.dilation = dilation
+    self.grouping = grouping
+    self.recursive_metis = recursive_metis
         
     with open(split, 'r') as f:
       traj_index = f.read().splitlines()
@@ -61,6 +65,24 @@ class MDDataset(Dataset):
       ed_idx = st_idx + self.traj_len
     return idx_rollout, st_idx, ed_idx
   
+  def get_cg_stats(self, tensor_dict):
+    num_cg_nodes = round(int(tensor_dict['n_particle']) / self.grouping)
+    row, col = tensor_dict['bonds'][:, 0], tensor_dict['bonds'][:, 1]
+    cluster, keypoints = metis_cluster(num_cg_nodes, tensor_dict['n_particle'], 
+                                      row, col, recursive=self.recursive_metis)
+    boundary_bonds = (cluster[row] != cluster[col])
+    cg_bonds = torch.cat([cluster[row[boundary_bonds]][:, None], 
+                          cluster[col[boundary_bonds]][:, None]], dim=1)
+    cg_bonds = torch.unique(cg_bonds, dim=0)
+    
+    return {
+        'keypoint': keypoints,
+        'n_keypoint': torch.LongTensor([num_cg_nodes]),
+        'cluster': cluster,
+        'cg_bonds': cg_bonds,
+        'n_cg_bond': torch.LongTensor([len(cg_bonds)])
+          }
+
   def __len__(self):
     if self.mode in ['rollout', 'oneshot']:
       return self.n_rollouts
@@ -142,6 +164,7 @@ class ProteinDataset(MDDataset):
     
     # clustering use torch tensors.
     tensor_dict = {k: torch.from_numpy(v) for k, v in tensor_dict.items()}
-        
+    tensor_dict.update(self.get_cg_stats(tensor_dict))
+
     return tensor_dict
   

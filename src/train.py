@@ -10,7 +10,7 @@ import torch
 import torch.nn
 from torch.utils.data import DataLoader
 from preprocessing.preprocessing_utils import dict_collate_fn
-from utils.visualizations import plot_3d_graph
+from utils.visualizations import plot_3d_graph,  target_plot_3d_graph
 import models.simulator as simulator
 from models.TINGnn import EMA
 import preprocessing.data as data
@@ -52,17 +52,24 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         for feat_args in batch.keys():
             batch[feat_args] = batch[feat_args].to(device)
         # Compute prediction and loss
-        acceleration, target_acceleration = model(batch['position'], batch['target'], 
+        # if first_batch:
+        #     first_batch_ = batch
+        # batch = first_batch_
+        acceleration, target_acceleration, position_seq = model(batch['position'], batch['target'], 
                                                   batch['particle_types'], batch['n_particle'], 
-                                                  batch['bonds'], batch.get('bond_types'))
+                                                  batch['bonds'], batch.get('bond_types'),
+                                                  batch['cg_bonds'], batch['n_keypoint'], 
+                                                  batch['cluster'], batch['keypoint'])
             
         # loss = loss_fn(acceleration, target_acceleration)
-        new_position_target = model._decoder_postprocessor(target_acceleration, batch['position'])
-        new_position_pred = model._decoder_postprocessor(acceleration, batch['position'])
-        loss = loss_fn(new_position_pred, new_position_target)
+        new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
+        new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
+        all_atom_position_target = batch['target']
+        # loss = loss_fn(new_position_pred, new_position_target)
+        loss = loss_fn(acceleration, target_acceleration)
         
         # loss = -acceleration.log_prob(target_acceleration).mean()
-        
+        # first_batch = False
         # Backpropagation
         optimizer.zero_grad()
         loss.backward()
@@ -72,12 +79,13 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         losses.append(loss.item())
         loss_1000.append(loss)
         if batch_num % 100 == 0:
-            new_position_pred = model._decoder_postprocessor(acceleration, batch['position'])
+            new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
             name_pred = f"pred__huberloss_batch_{batch_num}_epoch_{epoch}"
-            plot_3d_graph(new_position_pred, batch, name=name_pred)
-            new_position_target = model._decoder_postprocessor(target_acceleration, batch['position'])
+            # plot_3d_graph(new_position_pred, batch, all_atom_position_target, name=name_pred)
+            new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
+            target_plot_3d_graph(new_position_pred, batch, new_position_target, name=name_pred)
             name_target = f"target_batch_{batch_num}_epoch_{epoch}"
-            plot_3d_graph(new_position_target, batch, name=name_target)
+            # plot_3d_graph(new_position_target, batch, all_atom_position_target, name=name_target)
 
             loss, current = loss.item(), (batch_num + 1) * batch['n_particle'].shape[0]
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
@@ -100,7 +108,8 @@ def main(cfg: DictConfig) -> None:
 
     seed_everything()  
     training_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.train.split, 
-                                        directory= cfg.data.dir)
+                                        directory=cfg.data.dir,
+                                        grouping=5)
     train_dataloader = DataLoader(training_data, 
                                   batch_size=cfg.data.batch_size, 
                                   shuffle=cfg.data.shuffle, 
@@ -117,12 +126,13 @@ def main(cfg: DictConfig) -> None:
                                        noise_std=cfg.model.noise_std)
 
     model = model.to(device)
+    get_hyperparam(model)
     ema = EMA(0.995)
     ema_model = copy.deepcopy(model).eval().requires_grad_(False)
     # loss_fn = torch.nn.MSELoss()
     # loss_fn = torch.nn.L1Loss()
-    # loss_fn = torch.nn.HuberLoss()
-    loss_fn = MatrixLoss()
+    loss_fn = torch.nn.HuberLoss()
+    # loss_fn = MatrixLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optim.optimizer.lr)   
 
     epochs = 50

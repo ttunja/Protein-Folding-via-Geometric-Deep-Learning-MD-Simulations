@@ -1,63 +1,105 @@
-import simulator
+import hydra
+from omegaconf import DictConfig
 import os
-import simulator
+import models.simulator as simulator
 import numpy as np
-import random
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from preprocessing_utils import dict_collate_fn, load_pt
+from preprocessing.preprocessing_utils import dict_collate_fn, load_pt
 import tqdm
-import data
+import preprocessing.data as data
 
-def simulate_traj(dataloader, model, rollout_len):
+from utils.utils import coarse_graining
+from utils.visualizations import eval_plot_3d_graph, create_video
+from utils import utils
+
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def simulate_trajectory(dataloader, model, rollout_len, CG=False):
     new_position = None
-    rollout={}
+    rollout = {}
     all_positions = []
+
+    # Prevent gradient calculation for efficiency
     with torch.no_grad():
-        for batch_num, batch in enumerate(tqdm.tqdm(dataloader)):
-            for feat_args in batch.keys():
-                batch[feat_args] = batch[feat_args].to('cuda')
+        # Extract only the first batch from dataloader
+        batch = next(iter(dataloader))
 
-            if new_position is None:
-                for i in range(batch['position'].shape[1]):
-                    all_positions.append(batch['position'][:, i].detach().cpu().unsqueeze(1))
-                
-                new_position = model.predict(batch['position'], batch['particle_types'], 
-                                             batch['n_particle'], batch['bonds'], 
-                                             batch.get('bond_types'))
-                pos_seq = torch.cat([batch['position'][:, 1:], new_position.unsqueeze(1)], dim=1)
-                # all_positions.append(batch['position'].detach().cpu().unsqueeze(1))
-                all_positions.append(new_position.detach().cpu().unsqueeze(1))
-            else:
-                if batch_num:
-                    error = (sum((new_position-batch['target'])**2)/166)**0.5
-                    print(f"first rmse equals {error}")
-                for t in tqdm.tqdm(range(rollout_len)):
-                    new_position = model.predict(pos_seq, batch['particle_types'], 
-                                        batch['n_particle'], batch['bonds'], 
-                                        batch.get('bond_types'))
-                    pos_seq = torch.cat([pos_seq[:, 1:], new_position.unsqueeze(1)], dim=1)
-                    all_positions.append(new_position.detach().cpu().unsqueeze(1))
-                    rollout['coordinates'] = torch.cat(all_positions, dim=1)
-                
-                return rollout
-        
-def main():
+        # Move all batch tensor to CUDA device
+        batch = {feat_args: tensor.to('cuda') for feat_args, tensor in batch.items()}
+
+        particle_masses = torch.FloatTensor(utils.ATOM_MASSES)
+        weights = particle_masses[batch['particle_types']].to(DEVICE)
+        particle_type_embeddings = model._encoder_preprocessor(batch['particle_types'])
+        cluster, keypoint, n_cg_node, cg_bonds, position_seq, next_pos = (batch[key] for key in 
+                                                                          ['cluster', 'keypoint', 'n_keypoint', 
+                                                                           'cg_bonds', 'position', 'target'])
+        bond_types = batch.get('bond_types')
+
+        use_keypoint_cg = False
+        if CG:
+            (position_seq, next_pos, particle_type_embeddings, weights) = coarse_graining(
+                position_seq, next_pos, particle_type_embeddings, weights, use_keypoint_cg, cluster, keypoint)
+            n_node = n_cg_node
+            bonds = cg_bonds
+
+        # Store each position from cg_pos_seq into all_positions
+        for i in range(position_seq.shape[1]):
+            all_positions.append(position_seq[:, i].detach().cpu().unsqueeze(1))
+
+        # Predict the new_position using the model
+        new_position = model.predict(position_seq, particle_type_embeddings, 
+                                     n_node, bonds, bond_types, weights)
+
+        # Update pos_seq with the new_position
+        pos_seq = torch.cat([position_seq[:, 1:], new_position.unsqueeze(1)], dim=1)
+
+        # Append the new_position to all_positions
+        all_positions.append(new_position.detach().cpu().unsqueeze(1))
+
+        # Perform a prediction for every timestep in the rollout_len
+        for i in tqdm.tqdm(range(rollout_len)):
+            # # Plot 3D graph of the new_position
+            # eval_plot_3d_graph(new_position, batch, str(i))
+            # Predict the new_position using the model
+            new_position = model.predict(pos_seq, particle_type_embeddings, 
+                                         n_node, bonds, bond_types, weights)
+
+            # Update pos_seq with the new_position
+            pos_seq = torch.cat([pos_seq[:, 1:], new_position.unsqueeze(1)], dim=1)
+
+            # Append the new_position to all_positions
+            all_positions.append(new_position.detach().cpu().unsqueeze(1))
+
+            # Update the 'coordinates' key in the rollout dictionary
+            rollout['coordinates'] = torch.cat(all_positions, dim=1)
+
+        for i in tqdm.tqdm(range(len(all_positions))):
+            # Plot 3D graph of the new_position
+            eval_plot_3d_graph(all_positions[i].squeeze(), batch, str(i))
+        # Return the rollout dictionary after each batch
+        create_video("D:/PROTEIN-FOLDING-VISUALIZATIONS/eval")
+        return rollout
+    
+@hydra.main(config_path="conf", config_name="chignolin")        
+def main(cfg: DictConfig) -> None:
     rollout_len = 2000
-    test_data = data.ProteinDataset(split="src/test.txt", 
-                                        directory= "D:/MD_Data/polymer_train")
-    test_dataloader = DataLoader(test_data, batch_size=1, shuffle=False, collate_fn=dict_collate_fn, num_workers=2)
-    model = torch.load("models/model_overfit_49_batch_900")
-    rollout = simulate_traj(test_dataloader, model, rollout_len)
-    torch.save(rollout, 'new_overfit_new_rollout.pt')
-    load_pt("c:/Users/ttunj/TINGnn/Protein-Folding-via-Geometric-Deep-Learning-MD-Simulations", "new_overfit_new_rollout")
+    test_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.train.split, 
+                                        directory=cfg.data.dir,
+                                        grouping=5)
+    test_dataloader = DataLoader(test_data, 
+                                 batch_size=1, 
+                                 shuffle=False, 
+                                 collate_fn=dict_collate_fn, 
+                                 num_workers=2)
+    model_path = "D:/PROTEIN-FOLDING-MODELS/model_overfit_49_batch_900"
+    model = torch.load(model_path)
+    rollout = simulate_trajectory(test_dataloader, model, rollout_len, CG=True)
+    torch.save(rollout, 'CG_new_overfit_new_rollout.pt')
+    load_pt("c:/Users/ttunj/TINGnn/Protein-Folding-via-Geometric-Deep-Learning-MD-Simulations", "CG_new_overfit_new_rollout")
     
-    #"C:\Users\ttunj\TINGnn\Protein-Folding-via-Geometric-Deep-Learning-MD-Simulations\new_predicted_traj\coordinates.h5"
-    # U py39 conda environmentu
-# mdconvert "C:\Users\ttunj\TINGnn\Protein-Folding-via-Geometric-Deep-Learning-MD-Simulations\scaled_new_predicted_traj\coordinates.h5" -o scaled_new_traj_longer.h5 -t "D:\PROTEIN-FOLDING-DATA\Chignolin\DESRES-Trajectory_CLN025-0-protein\CLN025-0-protein\Topology.pdb" 
-    
-
 if __name__=="__main__":
     # import ipdb;ipdb.set_trace()
     main()

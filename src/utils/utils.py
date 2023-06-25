@@ -1,5 +1,6 @@
 import torch
 from torch_cluster import radius_graph
+from torch_scatter import scatter
 
 EPSILON = 1e-8
 ATOM_MASSES = [14.007, 1.008, 12.001, 16]
@@ -37,3 +38,35 @@ def compute_connectivity(positions, n_node, radius, bonds=None, add_self_edges=T
     displacements = (positions[senders] - positions[receivers]) / radius
     distances = displacements.norm(dim=-1, keepdim=True)
     return senders, receivers, displacements, distances, edge_types
+
+def compute_com(positions, weights, cluster):
+    """
+    compute center of mass according to the cluster assignments.
+    Inputs:
+        positions: N x T x dim
+        weights: N x 1
+        cluster: N x 1
+    """
+    weights = weights.view(-1, 1, 1)  
+    cg_weights = scatter(weights.squeeze(), cluster, dim=0, reduce='sum').view(-1, 1, 1)
+    cg_positions = scatter(weights*positions, cluster, dim=0, reduce='sum') / cg_weights
+    cg_weights = cg_weights.view(-1, 1)
+    return cg_positions, cg_weights
+
+def coarse_graining(pos_seq, next_pos, ptype_embeddings, weights, 
+                    use_keypoint_cg=False, cluster=None, keypoint=None):
+    """
+    coarse grain <pos_seq>, <next_pos>, <ptype_embeddings>, and <weights> using the 
+    fine -> coarse mapping given by <cluster>.
+    for systems with PBC only use the **unwrapped** positions as inputs.
+    """
+    pos_seq = torch.cat([pos_seq, next_pos[:, None, :]], dim=1)
+    if use_keypoint_cg:
+        cg_pos_seq = pos_seq[keypoint]
+        weights = weights.view(-1, 1, 1)  
+        cg_weights = scatter(weights.squeeze(), cluster, dim=0, reduce='sum').view(-1, 1)
+    else:
+        cg_pos_seq, cg_weights = compute_com(pos_seq, weights, cluster)
+    cg_pos_seq, cg_next_pos = cg_pos_seq[:, :-1], cg_pos_seq[:, -1]
+    cg_ptype_embeddings = scatter(ptype_embeddings, cluster, dim=0, reduce='mean')
+    return cg_pos_seq, cg_next_pos, cg_ptype_embeddings, cg_weights
