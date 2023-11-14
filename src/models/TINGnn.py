@@ -1,32 +1,4 @@
-# pylint: disable=g-bad-file-header
-# Copyright 2020 DeepMind Technologies Limited. All Rights Reserved.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or  implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ============================================================================
-
-"""Graph network implementation accompanying ICML 2020 submission.
-   "Learning to Simulate Complex Physics with Graph Networks"
-   Alvaro Sanchez-Gonzalez*, Jonathan Godwin*, Tobias Pfaff*, Rex Ying,
-   Jure Leskovec, Peter W. Battaglia
-   https://arxiv.org/abs/2002.09405
-The Sonnet `EncodeProcessDecode` module provided here implements the learnable
-parts of the model.
-It assumes an encoder preprocessor has already built a graph with
-connectivity and features as described in the paper, with features normalized
-to zero-mean unit-variance.
-Dependencies include Tensorflow 1.x, Sonnet 1.x and the Graph Nets 1.1 library.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
