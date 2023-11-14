@@ -11,7 +11,7 @@ import torch.nn
 from torch.utils.data import DataLoader
 from preprocessing.preprocessing_utils import dict_collate_fn
 from utils.visualizations import plot_3d_graph,  target_plot_3d_graph
-import models.simulator as simulator
+import models.simulator_diff as simulator
 from models.TINGnn import EMA
 import preprocessing.data as data
 from utils.custom_losses import MatrixLoss
@@ -55,7 +55,7 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         # if first_batch:
         #     first_batch_ = batch
         # batch = first_batch_
-        acceleration, target_acceleration, position_seq = model(batch['position'], batch['target'], 
+        acceleration, target_acceleration, position_seq, score_loss = model(batch['position'], batch['target'], 
                                                   batch['particle_types'], batch['n_particle'], 
                                                   batch['bonds'], batch.get('bond_types'),
                                                   batch['cg_bonds'], batch['n_keypoint'], 
@@ -67,6 +67,7 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         all_atom_position_target = batch['target']
         # loss = loss_fn(new_position_pred, new_position_target)
         loss = loss_fn(acceleration, target_acceleration)
+        loss = loss + score_loss
         
         # loss = -acceleration.log_prob(target_acceleration).mean()
         # first_batch = False
@@ -116,7 +117,7 @@ def main(cfg: DictConfig) -> None:
                                   collate_fn=dict_collate_fn, 
                                   num_workers=cfg.data.datamodule.num_workers.train)
 
-    model = simulator.LearnedSimulator(connectivity_radius=cfg.model.radius,
+    model = simulator.LearnedSimulatorDiff(connectivity_radius=cfg.model.radius,
                                        graph_network_kwargs=cfg.model.gn_hparams,
                                        num_particle_types=cfg.model.num_particle_types,
                                        num_bond_types=cfg.model.num_bond_types,
@@ -135,11 +136,11 @@ def main(cfg: DictConfig) -> None:
     # loss_fn = MatrixLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optim.optimizer.lr)   
 
-    epochs = 50
+    epochs = 200
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_dataloader, model, ema, ema_model, loss_fn, optimizer, epoch=t, device=device)
 
 if __name__=="__main__":
-    import ipdb; ipdb.set_trace()
+    # import ipdb; ipdb.set_trace()
     main()

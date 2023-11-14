@@ -14,6 +14,20 @@ EXPERIMENTS
 - implement stochastic acceleration into your architecture (didnt work good, mse between position coordinates too big)
 - Run model without hydrogens to see if it is easier to learn
 - Try to overfit using only 10 000 samples (10 000 timeframes) - not succeeded
-- Implement my own losses (one of them being Matrix loss which takes distance errors between all of the atoms)
-- Implement coarse-granining
-- try CG approach on Chignolin with 10 and 20 beads
+- Implement my own losses (one of them being Matrix loss which takes distance errors between all of the atoms) (Implemented)
+- Implement coarse-granining (Implemented)
+- try CG approach on Chignolin with 10 and 20 beads (tried, works much better)
+
+FUTURE
+- Add diffusion GNN to the architecture (added)
+- you need to add embedding_gn
+- Add history (memory)
+- add additional information for the history (maybe attention)
+- predict for rotatable bonds
+- why not predict it and minimize energy for the protein (using openmm)
+
+
+
+QUESTIONS   
+- Why are Nodes (CG beads) not connected with edges in the visualizations
+- Can I plot the wole protein on top of nodes and edges of CG Vis.
