@@ -165,7 +165,9 @@ def target_plot_3d_graph(new_position, batch, real_position, name):
 
     new_position = new_position.cpu().detach().numpy()
     real_position = real_position.cpu().detach().numpy()
-    non_duplicate_bonds = bonds[0:int(bonds.shape[0]/2)] # All bonds have been duplicated, since receivers=senders
+    bonds_set = set([tuple(sorted(pair)) for pair in bonds.tolist()])
+    non_duplicate_bonds = torch.tensor(list(bonds_set), device=bonds.device)
+    # non_duplicate_bonds = bonds[0:int(bonds.shape[0]/2)] # All bonds have been duplicated, since receivers=senders
     non_duplicate_bonds = non_duplicate_bonds.cpu().detach().numpy()
     particle_types = particle_types.cpu().detach().numpy()
 
