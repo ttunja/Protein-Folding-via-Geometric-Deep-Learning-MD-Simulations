@@ -26,7 +26,12 @@ FUTURE
 - predict for rotatable bonds
 - why not predict it and minimize energy for the protein (using openmm)
 
-
+NEED TO DO
+- Connect to the Patrick GPU
+- Make experiments structured
+- Think about the real metric that tells you if something succeeds
+- Think about all the experiments/implementations that you need to do to finish this
+ 
 
 QUESTIONS   
 - Why are Nodes (CG beads) not connected with edges in the visualizations
