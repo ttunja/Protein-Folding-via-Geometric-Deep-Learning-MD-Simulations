@@ -97,7 +97,8 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
             loss_1000 = []
 
         if batch_num % 900 == 0 and batch_num != 0:
-            torch.save(model, f"D:/PROTEIN-FOLDING-MODELS/model_overfit_{epoch}_batch_{batch_num}")
+            model_dir = os.getenv('MODEL_DIR')
+            torch.save(model, f"{model_dir}/model_overfit_{epoch}_batch_{batch_num}")
 
 
     print(f"Epoch loss={sum(losses):.3f}")
@@ -110,7 +111,7 @@ def main(cfg: DictConfig) -> None:
     seed_everything()  
     training_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.train.split, 
                                         directory=cfg.data.dir,
-                                        grouping=5)
+                                        grouping=10)
     train_dataloader = DataLoader(training_data, 
                                   batch_size=cfg.data.batch_size, 
                                   shuffle=cfg.data.shuffle, 
@@ -118,13 +119,13 @@ def main(cfg: DictConfig) -> None:
                                   num_workers=cfg.data.datamodule.num_workers.train)
 
     model = simulator.LearnedSimulatorDiff(connectivity_radius=cfg.model.radius,
-                                       graph_network_kwargs=cfg.model.gn_hparams,
-                                       num_particle_types=cfg.model.num_particle_types,
-                                       num_bond_types=cfg.model.num_bond_types,
-                                       particle_type_embedding_size=cfg.model.type_emb_size,
-                                       edge_type_embedding_size=cfg.model.type_emb_size,
-                                       sequence_len=cfg.model.seq_len,
-                                       noise_std=cfg.model.noise_std)
+                                        graph_network_kwargs=cfg.model.gn_hparams,
+                                        num_particle_types=cfg.model.num_particle_types,
+                                        num_bond_types=cfg.model.num_bond_types,
+                                        particle_type_embedding_size=cfg.model.type_emb_size,
+                                        edge_type_embedding_size=cfg.model.type_emb_size,
+                                        sequence_len=cfg.model.seq_len,
+                                        noise_std=cfg.model.noise_std)
 
     model = model.to(device)
     get_hyperparam(model)

@@ -17,22 +17,32 @@ EXPERIMENTS
 - Implement my own losses (one of them being Matrix loss which takes distance errors between all of the atoms) (Implemented)
 - Implement coarse-granining (Implemented)
 - try CG approach on Chignolin with 10 and 20 beads (tried, works much better)
+- try training for the whole chignolin
 
 FUTURE
 - Add diffusion GNN to the architecture (added)
-- you need to add embedding_gn
+- you need to add embedding_gn 
 - Add history (memory)
 - add additional information for the history (maybe attention)
 - predict for rotatable bonds
 - why not predict it and minimize energy for the protein (using openmm)
 
 NEED TO DO
-- Connect to the Patrick GPU
+- Connect to the Patrick GPU (finished)
 - Make experiments structured
 - Think about the real metric that tells you if something succeeds
 - Think about all the experiments/implementations that you need to do to finish this
  
 
 QUESTIONS   
+- WHAT IS THE DIFFERENCE BETWEEN MATRIX LOSS AND L1 LOSS (MAE), why not add Huberloss instead of MAE in there
 - Why are Nodes (CG beads) not connected with edges in the visualizations
 - Can I plot the wole protein on top of nodes and edges of CG Vis.
+
+
+TOMORROW
+- add embedding_gn
+- try it with chignolin again
+- add Villin and see how that works in combination
+- write the new strategy of predicting the angles
+- different training strategy (first optimize for one step, then for 2, then for 4, then for 8, then for 12)

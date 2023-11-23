@@ -78,23 +78,25 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
 
         for i in tqdm.tqdm(range(len(all_positions))):
             # Plot 3D graph of the new_position
-            eval_plot_3d_graph(all_positions[i].squeeze(), batch, str(i))
+            eval_plot_3d_graph(all_positions[i].squeeze(), batch, f"eval/{str(i)}")
         # Return the rollout dictionary after each batch
-        create_video("D:/PROTEIN-FOLDING-VISUALIZATIONS/eval")
+        visualization_dir = os.getenv("VISUALIZATION_DIR")
+        create_video(f"{visualization_dir}/eval")
         return rollout
     
 @hydra.main(config_path="conf", config_name="chignolin")        
 def main(cfg: DictConfig) -> None:
-    rollout_len = 2000
-    test_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.train.split, 
-                                        directory=cfg.data.dir,
-                                        grouping=5)
+    rollout_len = 200
+    test_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.test.split, 
+                                    directory=cfg.data.dir,
+                                    grouping=10)
     test_dataloader = DataLoader(test_data, 
                                  batch_size=1, 
                                  shuffle=False, 
                                  collate_fn=dict_collate_fn, 
                                  num_workers=2)
-    model_path = "D:/PROTEIN-FOLDING-MODELS/model_overfit_49_batch_900"
+    model_dir = os.getenv('MODEL_DIR')
+    model_path = f"{model_dir}/model_overfit_41_batch_33300"
     model = torch.load(model_path)
     rollout = simulate_trajectory(test_dataloader, model, rollout_len, CG=True)
     torch.save(rollout, 'CG_new_overfit_new_rollout.pt')
