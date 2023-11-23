@@ -1,4 +1,5 @@
 # cor_matrix=torch.corrcoef(positions[:166])
+import os
 import pickle
 import matplotlib.pyplot as plt
 from chart_studio import plotly as py
@@ -17,8 +18,9 @@ import torch
 def plot_3d_graph(new_position, batch, real_position, name):
 
     # assert new_position
-    save_dir = f"D:/PROTEIN-FOLDING-VISUALIZATIONS/{name}.html"
-    save_img = f"D:/PROTEIN-FOLDING-VISUALIZATIONS/{name}.png"
+    visualization_dir = os.getenv('VISUALIZATION_DIR')
+    save_dir = f"{visualization_dir}/{name}.html"
+    save_img = f"{visualization_dir}/{name}.png"
     
     # bonds = batch['bonds']
     bonds = batch['cg_bonds']
@@ -146,8 +148,9 @@ def plot_3d_graph(new_position, batch, real_position, name):
 def target_plot_3d_graph(new_position, batch, real_position, name):
 
     # assert new_position
-    save_dir = f"D:/PROTEIN-FOLDING-VISUALIZATIONS/{name}.html"
-    save_img = f"D:/PROTEIN-FOLDING-VISUALIZATIONS/{name}.png"
+    visualization_dir = os.getenv('VISUALIZATION_DIR')
+    save_dir = f"{visualization_dir}/{name}.html"
+    save_img = f"{visualization_dir}/{name}.png"
     
     # bonds = batch['bonds']
     bonds = batch['cg_bonds']
@@ -272,8 +275,9 @@ def target_plot_3d_graph(new_position, batch, real_position, name):
 def eval_plot_3d_graph(new_position, batch,  name):
 
     # assert new_position
-    save_dir = f"D:/PROTEIN-FOLDING-VISUALIZATIONS/eval/{name}.html"
-    save_img = f"D:/PROTEIN-FOLDING-VISUALIZATIONS/eval/{name}.png"
+    visualization_dir = os.getenv('VISUALIZATION_DIR')
+    save_dir = f"{visualization_dir}/{name}.html"
+    save_img = f"{visualization_dir}/{name}.png"
     
     # bonds = batch['bonds']
     bonds = batch['cg_bonds']
@@ -287,7 +291,9 @@ def eval_plot_3d_graph(new_position, batch,  name):
         bonds = bonds[:bond_num]
 
     new_position = new_position.cpu().detach().numpy()
-    non_duplicate_bonds = bonds[0:int(bonds.shape[0]/2)] # All bonds have been duplicated, since receivers=senders
+    bonds_set = set([tuple(sorted(pair)) for pair in bonds.tolist()])
+    non_duplicate_bonds = torch.tensor(list(bonds_set), device=bonds.device)
+    # non_duplicate_bonds = bonds[0:int(bonds.shape[0]/2)] # All bonds have been duplicated, since receivers=senders
     non_duplicate_bonds = non_duplicate_bonds.cpu().detach().numpy()
     particle_types = particle_types.cpu().detach().numpy()
 
@@ -363,7 +369,7 @@ def create_video(path):
 
     # 1. Render HTML files to images
     html_files = glob.glob(path + '/*.png')  # specify your path
-    html_files = sorted(html_files, key=lambda x: int(x.split('\\')[-1].split('.')[0]))
+    html_files = sorted(html_files, key=lambda x: int(x.split('/')[-1].split('.')[0]))
     image_files = []
 
     for i, file in enumerate(html_files):
@@ -376,5 +382,6 @@ def create_video(path):
 
 if __name__=="__main__":
     # import ipdb; ipdb.set_trace()
-    create_video("D:/PROTEIN-FOLDING-VISUALIZATIONS/eval")
+    visualization_dir = os.getenv('VISUALIZATION_DIR')
+    create_video(f"{visualization_dir}/eval")
     

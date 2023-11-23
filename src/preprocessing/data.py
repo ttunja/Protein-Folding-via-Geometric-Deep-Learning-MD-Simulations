@@ -107,10 +107,12 @@ class ProteinDataset(MDDataset):
     tensor_dict = {}
     
     ptype = load_data(['particle_type'], self.traj_index[idx_rollout] / 'ptype.h5')[0]
+    # TODO comment out
     non_hydrogen_ind = list(np.where(ptype!=1)[0])
     ptype = ptype[non_hydrogen_ind]
     rgs = load_data_w_idx(['rgs'], self.traj_index[idx_rollout] / 'rgs.h5', select_idx)[0]
     bonds = load_data(['bond_indices'], self.traj_index[idx_rollout] / 'bond.h5')[0]
+    # TODO comment out
     new_bonds = []
     all_values = []
     real_bonds = []
@@ -143,6 +145,7 @@ class ProteinDataset(MDDataset):
     
     positions = load_data_w_idx(['position'], self.traj_index[idx_rollout] / 'position.h5', 
                                       select_idx)[0]
+    # TODO comment out
     positions = positions[:][:][:,non_hydrogen_ind]
     if self.mode == 'train':
       input_pos = positions[:-1]  
