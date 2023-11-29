@@ -41,8 +41,12 @@ QUESTIONS
 
 
 TOMORROW
-- add embedding_gn
-- try it with chignolin again
+- add embedding_gn (povecaj radius, za susjede, provjeri otkud 810 edgesa koji idu u input_graph)
+- try it with chignolin again (done)
+- increase the noise for the diffusion model
+- add target nodes to the visualization in eval (done)
 - add Villin and see how that works in combination
 - write the new strategy of predicting the angles
 - different training strategy (first optimize for one step, then for 2, then for 4, then for 8, then for 12)
+
+RuntimeError: mat1 and mat2 shapes cannot be multiplied (90x217 and 121x128)

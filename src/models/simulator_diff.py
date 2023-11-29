@@ -30,8 +30,15 @@ class LearnedSimulatorDiff(LearnedSimulator):
         #   edge_dim=self.hparams.dimension+1+self.hparams.type_emb_size,
         #   out_dim=self.hparams.dimension, 
         #   **self.hparams.score_gn_hparams)
+        # TODO najvjv treba self za varables
+        self.embedding_gn = EncodeProcessDecode(
+                                            node_dim=self.particle_type_embedding_size + 1,
+                                            edge_dim=self.edge_type_embedding_size,  
+                                            output_size=128, 
+                                            **self.embedding_network_kwargs)
+
         # TODO check node_dim, it should be 128, not 21
-        self.score_gn = EncodeProcessDecode(node_dim=120+1,
+        self.score_gn = EncodeProcessDecode(node_dim=128+1,
                                             edge_dim=3+1+32,
                                             hidden_size=128,
                                             num_hidden_layers=2,
@@ -47,13 +54,16 @@ class LearnedSimulatorDiff(LearnedSimulator):
             self.particle_masses = self.particle_masses.to(position_seq.device)
         
         weights = self.particle_masses[particle_types]
-        particle_type_embeddings = self._encoder_preprocessor(particle_types)
+        particle_type_embeddings = self._encoder_preprocessor(particle_types, n_node, bonds, bond_types, weights)
         
+        # Process particle_type_embeddings through embedding_gn
+        processed_embeddings = self.embedding_gn(particle_type_embeddings)
+
         use_keypoint_cg = False
         # coarse graining.
         if self.use_coarse_graining:
-            (position_seq, next_pos, particle_type_embeddings, weights) = coarse_graining(
-                position_seq, next_pos, particle_type_embeddings, weights, use_keypoint_cg, cluster, keypoint)
+            (position_seq, next_pos, processed_embeddings, weights) = coarse_graining(
+                position_seq, next_pos, processed_embeddings, weights, use_keypoint_cg, cluster, keypoint)
         n_node = n_cg_node
         bonds = cg_bonds  # only operate at coarse-level after this point.
 
@@ -65,16 +75,16 @@ class LearnedSimulatorDiff(LearnedSimulator):
         sampled_sigmas, noisy_next_pos_2 = self.sample_noisy_pos(noisy_next_pos, n_node)
         target = (-1/(sampled_sigmas.pow(2)) * (noisy_next_pos_2 - noisy_next_pos)).squeeze()
 
-        input_graph = self._dynamics_preprocessor(noisy_position_seq, particle_type_embeddings, n_node, 
+        input_graph = self._dynamics_preprocessor(noisy_position_seq, processed_embeddings, n_node, 
                                                   bonds, bond_types, weights=weights)
 
 
 
-        acceleration = self._graph_network(input_graph)
+        acceleration, history_latent_graph = self._graph_network(input_graph, return_latent=True)
 
         target_acceleration = self._inverse_decoder_postprocessor(noisy_next_pos, position_seq)
 
-        history_latent = input_graph.nodes
+        history_latent = history_latent_graph.nodes
         score_graph = self._dynamics_preprocessor(noisy_next_pos_2[:, None], history_latent, n_node, 
                                                   bonds, bond_types, weights=weights)
         
@@ -102,17 +112,49 @@ class LearnedSimulatorDiff(LearnedSimulator):
         input_graph = self._dynamics_preprocessor(position_seq, particle_type_embeddings, n_node, 
                                                  bonds, bond_types, weights=weights)
 
-        acceleration = self._graph_network(input_graph)
+        acceleration, history_latent_graph = self._graph_network(input_graph, return_latent=True)
+        history_latent = history_latent_graph.nodes
 
         new_position = self._decoder_postprocessor(acceleration, position_seq)
+
+        # for sigma in self.sigmas:  # [-self.hparams.dyn_level:]
+        #     for ld_step in range(10):#(self.hparams.step_per_sigma):
+        #         score_graph = self._dynamics_preprocessor(
+        #             new_position[:, None], history_latent, n_node, bonds, bond_types, weights=weights)
+        #         scores = 0.00005 * self.score_gn(score_graph) / sigma
+        #         langevin_noise = torch.randn_like(new_position) * math.sqrt(0.00005 * 2)
+        #         new_position = new_position + scores + langevin_noise
 
         return new_position
 
     # TODO Add embedding_gnn, you need bonds,..
-    def _encoder_preprocessor(self, particle_types):
+    def _encoder_preprocessor(self, particle_types, n_node, bonds=None, bond_types=None, weights=None):
         # Node features    
         particle_type_embeddings = self.type_embedding(particle_types)
-        return particle_type_embeddings
+        if not self.embedding_network_kwargs:
+            return particle_type_embeddings
+        else:
+            assert bonds is not None, 'an embedding network should only be used when the \
+                                        ground truth graph contains bonds.'                        
+            senders, receivers = bonds[:, 0], bonds[:, 1]
+            edge_embeddings = particle_type_embeddings[senders] + particle_type_embeddings[receivers]
+            
+            # TODO check with ipdb
+            if bond_types is not None:
+                edge_embeddings += self.bond_type_embedding(bond_types)
+            
+            if weights is not None:
+                particle_type_embeddings = torch.cat([particle_type_embeddings, weights.view(-1, 1)], dim=-1)
+                
+            return graphs.GraphsTuple(
+                nodes=particle_type_embeddings,
+                edges=edge_embeddings,
+                edge_type=None,
+                coords=None,
+                globals=None,
+                n_node=n_node,
+                senders=senders,
+                receivers=receivers)
     
     def _dynamics_preprocessor(self, position_seq, particle_type_embeddings, n_node,
                                bonds=None, bond_types=None, weights=None):
@@ -128,21 +170,12 @@ class LearnedSimulatorDiff(LearnedSimulator):
         
 
         # Edge features
-        # NOT SURE            
-        # senders, receivers = bonds[:, 0], bonds[:, 1]
-        # edge_embeddings = ptype_embeddings[senders] + ptype_embeddings[receivers]
-        edge_embeddings = None
-        if bond_types is not None and self._num_bond_types > 0:
-            edge_embeddings = self.bond_type_embedding(bond_types)
         most_recent_position = position_seq[:, -1]
         # Get connectivity of the graph.
         senders, receivers, displacements, distances, edge_types = utils.compute_connectivity(
                             most_recent_position, n_node, self._connectivity_radius, bonds)
-        # TODO change this part of code
-        if edge_embeddings is not None:
-            edge_embeddings += self.edge_type_embedding(edge_types)
-        else:
-            edge_embeddings = self.edge_type_embedding(edge_types)
+        
+        edge_embeddings = self.edge_type_embedding(edge_types)
 
         edge_features = torch.cat([displacements, distances, edge_embeddings], dim=-1)
         

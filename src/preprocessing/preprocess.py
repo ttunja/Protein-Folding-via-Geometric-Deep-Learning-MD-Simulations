@@ -42,6 +42,14 @@ def load_protein_data(data_dir, topology_dir):
 
     rgs = mdtraj.compute_rg(trajectory, masses=np.array(table.mass))*10
 
+    ################################### ADDED ####################################################################
+    # # Identifying Alpha Carbons
+    # alpha_carbons = []
+    # for atom in trajectory.topology.atoms:
+    #     if atom.name == 'CA':
+    #         alpha_carbons.append(atom.index)
+    ##############################################################################################################
+
     atom_types = [ATOM_TYPES.index(atom) for atom in table.element]
     atom_types = np.array(atom_types)
 
