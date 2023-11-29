@@ -8,5 +8,6 @@ radius: 50
 # networks
 type_emb_size: 32
 gn_hparams: {'latent_size': 128, 'hidden_size': 128, 'num_hidden_layers': 2, 'num_message_passing_steps': 7}
+embedding_gn_hparams: {'latent_size': 64, 'hidden_size': 64, 'num_hidden_layers': 2, 'num_message_passing_steps': 7}
 # noise params
 noise_std: 0.1

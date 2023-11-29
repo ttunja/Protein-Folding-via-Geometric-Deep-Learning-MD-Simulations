@@ -120,6 +120,7 @@ def main(cfg: DictConfig) -> None:
 
     model = simulator.LearnedSimulatorDiff(connectivity_radius=cfg.model.radius,
                                         graph_network_kwargs=cfg.model.gn_hparams,
+                                        embedding_network_kwargs=cfg.model.embedding_gn_hparams,
                                         num_particle_types=cfg.model.num_particle_types,
                                         num_bond_types=cfg.model.num_bond_types,
                                         particle_type_embedding_size=cfg.model.type_emb_size,

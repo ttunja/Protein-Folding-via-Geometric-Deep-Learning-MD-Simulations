@@ -18,6 +18,7 @@ class LearnedSimulator(nn.Module):
         self,
         connectivity_radius,
         graph_network_kwargs,
+        embedding_network_kwargs,
         # normalization_stats,
         num_particle_types,
         num_bond_types,
@@ -52,9 +53,12 @@ class LearnedSimulator(nn.Module):
         self._sequence_len = sequence_len
         self._noise_std = noise_std
         self.use_coarse_graining = True#(self.hparams.cg_level > 1) or ('use_keypoint_for_cg' in self.hparams and self.hparams.use_keypoint_for_cg)
-        
+        self.embedding_network_kwargs = embedding_network_kwargs
+        self.particle_type_embedding_size = particle_type_embedding_size
+        self.edge_type_embedding_size = edge_type_embedding_size
+
         self._graph_network = EncodeProcessDecode(
-                node_dim=3*(sequence_len-1) + particle_type_embedding_size + 1, # we use sequence_len -1 + 1=use_weights for training
+                node_dim=3*(sequence_len-1) + 128 + 1, # we use sequence_len -1 + 1=use_weights for training
                 edge_dim=3 + 1 + edge_type_embedding_size,
                 output_size=3, **graph_network_kwargs)
 

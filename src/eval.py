@@ -11,7 +11,7 @@ import tqdm
 import preprocessing.data as data
 
 from utils.utils import coarse_graining
-from utils.visualizations import eval_plot_3d_graph, create_video
+from utils.visualizations import eval_plot_3d_graph, target_plot_3d_graph, create_video
 from utils import utils
 
 
@@ -21,6 +21,7 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
     new_position = None
     rollout = {}
     all_positions = []
+    all_positions_real = []
 
     # Prevent gradient calculation for efficiency
     with torch.no_grad():
@@ -32,25 +33,29 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
 
         particle_masses = torch.FloatTensor(utils.ATOM_MASSES)
         weights = particle_masses[batch['particle_types']].to(DEVICE)
-        particle_type_embeddings = model._encoder_preprocessor(batch['particle_types'])
-        cluster, keypoint, n_cg_node, cg_bonds, position_seq, next_pos = (batch[key] for key in 
-                                                                          ['cluster', 'keypoint', 'n_keypoint', 
-                                                                           'cg_bonds', 'position', 'target'])
+        cluster, keypoint, n_node, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
+                                                                          ['cluster', 'keypoint', 'n_particle',
+                                                                          'n_keypoint', 'bonds', 'cg_bonds', 
+                                                                          'position', 'target'])
         bond_types = batch.get('bond_types')
+
+        particle_type_embeddings = model._encoder_preprocessor(batch['particle_types'], n_node, bonds, bond_types, weights)
+        processed_embeddings = model.embedding_gn(particle_type_embeddings)
 
         use_keypoint_cg = False
         if CG:
-            (position_seq, next_pos, particle_type_embeddings, weights) = coarse_graining(
-                position_seq, next_pos, particle_type_embeddings, weights, use_keypoint_cg, cluster, keypoint)
+            (position_seq, next_pos, processed_embeddings, weights) = coarse_graining(
+                position_seq, next_pos, processed_embeddings, weights, use_keypoint_cg, cluster, keypoint)
             n_node = n_cg_node
             bonds = cg_bonds
 
         # Store each position from cg_pos_seq into all_positions
         for i in range(position_seq.shape[1]):
             all_positions.append(position_seq[:, i].detach().cpu().unsqueeze(1))
+            all_positions_real.append(position_seq[:, i].detach().cpu().unsqueeze(1))
 
         # Predict the new_position using the model
-        new_position = model.predict(position_seq, particle_type_embeddings, 
+        new_position = model.predict(position_seq, processed_embeddings, 
                                      n_node, bonds, bond_types, weights)
 
         # Update pos_seq with the new_position
@@ -58,13 +63,30 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
 
         # Append the new_position to all_positions
         all_positions.append(new_position.detach().cpu().unsqueeze(1))
+        all_positions_real.append(next_pos.detach().cpu().unsqueeze(1))
 
         # Perform a prediction for every timestep in the rollout_len
         for i in tqdm.tqdm(range(rollout_len)):
+        ################################################################################################################
+            batch = next(iter(dataloader))
+
+            # Move all batch tensor to CUDA device
+            weights = particle_masses[batch['particle_types']].to(DEVICE)
+            batch = {feat_args: tensor.to('cuda') for feat_args, tensor in batch.items()}
+            cluster, keypoint, n_node, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
+                                                                            ['cluster', 'keypoint', 'n_particle',
+                                                                            'n_keypoint', 'bonds', 'cg_bonds', 
+                                                                            'position', 'target'])
+            particle_type_embeddings = model._encoder_preprocessor(batch['particle_types'], n_node, bonds, bond_types, weights)
+            processed_embeddings = model.embedding_gn(particle_type_embeddings)
+            (position_seq, next_pos, processed_embeddings, weights) = coarse_graining(
+                position_seq, next_pos, processed_embeddings, weights, use_keypoint_cg, cluster, keypoint)
+            n_node = n_cg_node
+            bonds = cg_bonds
+        ###############################################################################################################
             # # Plot 3D graph of the new_position
-            # eval_plot_3d_graph(new_position, batch, str(i))
             # Predict the new_position using the model
-            new_position = model.predict(pos_seq, particle_type_embeddings, 
+            new_position = model.predict(pos_seq, processed_embeddings, 
                                          n_node, bonds, bond_types, weights)
 
             # Update pos_seq with the new_position
@@ -72,13 +94,15 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
 
             # Append the new_position to all_positions
             all_positions.append(new_position.detach().cpu().unsqueeze(1))
+            all_positions_real.append(next_pos.detach().cpu().unsqueeze(1))
 
             # Update the 'coordinates' key in the rollout dictionary
             rollout['coordinates'] = torch.cat(all_positions, dim=1)
 
         for i in tqdm.tqdm(range(len(all_positions))):
             # Plot 3D graph of the new_position
-            eval_plot_3d_graph(all_positions[i].squeeze(), batch, f"eval/{str(i)}")
+            # eval_plot_3d_graph(all_positions[i].squeeze(), batch, f"eval/{str(i)}")
+            target_plot_3d_graph(all_positions[i].squeeze(), batch, all_positions_real[i].squeeze(), f"eval/{str(i)}")
         # Return the rollout dictionary after each batch
         visualization_dir = os.getenv("VISUALIZATION_DIR")
         create_video(f"{visualization_dir}/eval")
@@ -96,7 +120,7 @@ def main(cfg: DictConfig) -> None:
                                  collate_fn=dict_collate_fn, 
                                  num_workers=2)
     model_dir = os.getenv('MODEL_DIR')
-    model_path = f"{model_dir}/model_overfit_41_batch_33300"
+    model_path = f"{model_dir}/model_overfit_19_batch_13500"
     model = torch.load(model_path)
     rollout = simulate_trajectory(test_dataloader, model, rollout_len, CG=True)
     torch.save(rollout, 'CG_new_overfit_new_rollout.pt')
