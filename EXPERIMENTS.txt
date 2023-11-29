@@ -50,3 +50,13 @@ TOMORROW
 - different training strategy (first optimize for one step, then for 2, then for 4, then for 8, then for 12)
 
 RuntimeError: mat1 and mat2 shapes cannot be multiplied (90x217 and 121x128)
+
+####################################################################################################### ANGLE PREDICTION ###############################################################################################################
+
+1) How to Coarse-Grain the protein (rotatable bonds, carbon alpha atoms)? We cannot perform CG just using metis algorithm.
+2) Do I have to superimpose graph to the first graph everytime to calculate the angles?
+3) are we going to take the distance of carbon alpha atoms or angle differences as the loss? Small difference in angles can result in big differences in distances!
+4) How do we calculate the angles (that we are going to learn on) to start with?
+5) Predict only Psi, Phi and Omega angles!
+
+Each of the phi/psi atom pair (atoms) is used to predict 1 phi/psi angle (which is 1-dimensional)

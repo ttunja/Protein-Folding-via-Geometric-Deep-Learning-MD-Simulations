@@ -3,7 +3,6 @@ from pathlib import Path
 import time
 import copy
 import numpy as np
-import torch
 import h5py
 
 def store_data(data_names, data, path):
@@ -31,6 +30,7 @@ def load_data_w_idx(data_names, path, select_idx):
     return data
 
 def dict_collate_fn(batch):
+    import torch
     batch = {k: torch.cat([d[k] for d in batch], dim=0) for k in batch[0].keys()}
     
     # bonds add bonds offsets
@@ -111,6 +111,7 @@ def fix_traj(traj):
 
 
 def load_pt(datadir:str, rollout:str):
+    import torch
     df = torch.load(os.path.join(datadir, rollout+".pt"))
     data = df['coordinates'].permute(1, 0, 2).detach().cpu().numpy()
     os.makedirs(os.path.join(datadir, rollout), exist_ok=True)

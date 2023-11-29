@@ -153,7 +153,7 @@ class EncodeProcessDecode(nn.Module):
                  num_hidden_layers: int, 
                  latent_size: int, 
                  num_message_passing_steps: int, 
-                 output_size: int=3):
+                 output_size: int=1):
         super().__init__()
         self._hidden_size = hidden_size
         self._num_hidden_layers = num_hidden_layers

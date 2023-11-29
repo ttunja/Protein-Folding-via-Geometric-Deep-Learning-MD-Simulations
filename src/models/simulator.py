@@ -52,15 +52,16 @@ class LearnedSimulator(nn.Module):
         # self._normalization_stats = normalization_stats
         self._sequence_len = sequence_len
         self._noise_std = noise_std
-        self.use_coarse_graining = True#(self.hparams.cg_level > 1) or ('use_keypoint_for_cg' in self.hparams and self.hparams.use_keypoint_for_cg)
+s        self.use_coarse_graining = False #(self.hparams.cg_level > 1) or ('use_keypoint_for_cg' in self.hparams and self.hparams.use_keypoint_for_cg)
+        
         self.embedding_network_kwargs = embedding_network_kwargs
         self.particle_type_embedding_size = particle_type_embedding_size
         self.edge_type_embedding_size = edge_type_embedding_size
 
         self._graph_network = EncodeProcessDecode(
-                node_dim=3*(sequence_len-1) + 128 + 1, # we use sequence_len -1 + 1=use_weights for training
+                node_dim=3*(sequence_len-1) + particle_type_embedding_size + 1, # we use sequence_len -1 + 1=use_weights for training
                 edge_dim=3 + 1 + edge_type_embedding_size,
-                output_size=3, **graph_network_kwargs)
+                output_size=1, **graph_network_kwargs)
 
         self.type_embedding = nn.Embedding(num_particle_types, particle_type_embedding_size)
         nn.init.xavier_uniform_(self.type_embedding.weight)
@@ -75,7 +76,8 @@ class LearnedSimulator(nn.Module):
         
     def forward(self, position_seq, next_pos, particle_types, n_node, 
                 bonds=None, bond_types=None, cg_bonds=None, n_cg_node=None,
-                cluster=None, keypoint=None):
+                cluster=None, keypoint=None, phi_atoms=None, psi_atoms=None, 
+                phi_angles=None, psi_angles=None, target_phi_angles=None, target_psi_angles=None):
         
         if self.particle_masses.device != position_seq.device:
             self.particle_masses = self.particle_masses.to(position_seq.device)
@@ -91,8 +93,9 @@ class LearnedSimulator(nn.Module):
         n_node = n_cg_node
         bonds = cg_bonds  # only operate at coarse-level after this point.
 
-        sampled_noise = utils.get_position_noise(position_seq, 
-                                                 self._noise_std, use_rw=True)
+        # sampled_noise = utils.get_position_noise(position_seq, 
+        #                                          self._noise_std, use_rw=True)
+
         noisy_position_seq = position_seq + sampled_noise
         noisy_next_pos = next_pos + sampled_noise[:, -1]
 
@@ -101,7 +104,10 @@ class LearnedSimulator(nn.Module):
 
 
 
-        acceleration = self._graph_network(input_graph)
+        processed_graph = self._graph_network(input_graph)
+
+        # TODO write this function that will actually be a MLP that takes phi atoms and psi atoms and predict respective angles
+        torsion_angles = self.predict_torsion_angles(processed_graph, phi_atoms, psi_atoms, phi_angles, psi_angles)
 
         target_acceleration = self._inverse_decoder_postprocessor(noisy_next_pos, position_seq)
 

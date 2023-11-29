@@ -59,7 +59,10 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
                                                   batch['particle_types'], batch['n_particle'], 
                                                   batch['bonds'], batch.get('bond_types'),
                                                   batch['cg_bonds'], batch['n_keypoint'], 
-                                                  batch['cluster'], batch['keypoint'])
+                                                  batch['cluster'], batch['keypoint'],
+                                                  batch['phi_atoms'], batch['psi_atoms'],
+                                                  batch['phi_angles'], batch['psi_angles'],
+                                                  batch['target_phi_angles'], batch['target_psi_angles'])
             
         # loss = loss_fn(acceleration, target_acceleration)
         new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
@@ -113,10 +116,12 @@ def main(cfg: DictConfig) -> None:
                                         directory=cfg.data.dir,
                                         grouping=10)
     train_dataloader = DataLoader(training_data, 
-                                  batch_size=cfg.data.batch_size, 
+                                #   batch_size=cfg.data.batch_size, 
+                                  batch_size=1, 
                                   shuffle=cfg.data.shuffle, 
-                                  collate_fn=dict_collate_fn, 
-                                  num_workers=cfg.data.datamodule.num_workers.train)
+                                  collate_fn=dict_collate_fn,
+                                  num_workers=1) 
+                                #   num_workers=cfg.data.datamodule.num_workers.train)
 
     model = simulator.LearnedSimulatorDiff(connectivity_radius=cfg.model.radius,
                                         graph_network_kwargs=cfg.model.gn_hparams,
@@ -144,5 +149,5 @@ def main(cfg: DictConfig) -> None:
         train_loop(train_dataloader, model, ema, ema_model, loss_fn, optimizer, epoch=t, device=device)
 
 if __name__=="__main__":
-    # import ipdb; ipdb.set_trace()
+    import ipdb; ipdb.set_trace()
     main()
