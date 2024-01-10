@@ -152,8 +152,8 @@ def target_plot_3d_graph(new_position, batch, real_position, name):
     save_dir = f"{visualization_dir}/{name}.html"
     save_img = f"{visualization_dir}/{name}.png"
     
-    # bonds = batch['bonds']
-    bonds = batch['cg_bonds']
+    bonds = batch['bonds']
+    # bonds = batch['cg_bonds']
     particle_types = batch['particle_types']
     if batch['n_particle'].shape[0]!=1:
         particle_num = new_position.shape[0]//batch['n_particle'].shape[0]
@@ -268,7 +268,7 @@ def target_plot_3d_graph(new_position, batch, real_position, name):
     data=[trace1, trace2, trace3, trace4]
     fig=go.Figure(data=data, layout=layout)
     fig.write_html(save_dir)
-    write_image(fig, save_img)
+    # write_image(fig, save_img)
 #########################################################################################################################
 ################################################# EVALUATION ############################################################
 #########################################################################################################################

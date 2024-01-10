@@ -11,12 +11,13 @@ import torch.nn
 from torch.utils.data import DataLoader
 from preprocessing.preprocessing_utils import dict_collate_fn
 from utils.visualizations import plot_3d_graph,  target_plot_3d_graph
-import models.simulator_diff as simulator
+import models.simulator as simulator
 from models.TINGnn import EMA
 import preprocessing.data as data
 from utils.custom_losses import MatrixLoss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.autograd.set_detect_anomaly(True)
 
 def seed_everything(seed=42):
     random.seed(seed)
@@ -42,7 +43,7 @@ def get_hyperparam(model):
     print("-----------------------------------------------------------------------")
 
 
-def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, device="cuda"):
+def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, device="cuda", additional_arg=None):
     size = len(dataloader.dataset)
     losses = []
     loss_1000 = []
@@ -55,22 +56,41 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         # if first_batch:
         #     first_batch_ = batch
         # batch = first_batch_
-        acceleration, target_acceleration, position_seq, score_loss = model(batch['position'], batch['target'], 
+        target_acceleration, position_seq, phi_angle_pred, psi_angle_pred, phi_angle_target, psi_angle_target, new_position = model(batch['position'], batch['target'], 
                                                   batch['particle_types'], batch['n_particle'], 
                                                   batch['bonds'], batch.get('bond_types'),
-                                                  batch['cg_bonds'], batch['n_keypoint'], 
-                                                  batch['cluster'], batch['keypoint'],
                                                   batch['phi_atoms'], batch['psi_atoms'],
                                                   batch['phi_angles'], batch['psi_angles'],
                                                   batch['target_phi_angles'], batch['target_psi_angles'])
-            
+        
+        # target_acceleration, position_seq, phi_angle_pred, psi_angle_pred, phi_angle_target, psi_angle_target = model(batch['position'], batch['target'], 
+        #                                           batch['particle_types'], batch['n_particle'], 
+        #                                           batch['bonds'], batch.get('bond_types'),
+        #                                           batch['phi_atoms'], batch['psi_atoms'],
+        #                                           batch['phi_angles'], batch['psi_angles'],
+        #                                           batch['target_phi_angles'], batch['target_psi_angles'])
+
         # loss = loss_fn(acceleration, target_acceleration)
         new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
-        new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
-        all_atom_position_target = batch['target']
-        # loss = loss_fn(new_position_pred, new_position_target)
-        loss = loss_fn(acceleration, target_acceleration)
-        loss = loss + score_loss
+        # new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
+        # all_atom_position_target = batch['target']
+        # # loss = loss_fn(new_position_pred, new_position_target)
+        # loss = loss_fn(acceleration, target_acceleration)
+        # loss = loss + score_loss
+        loss_phi = loss_fn(phi_angle_pred.squeeze(), phi_angle_target)
+        loss_psi = loss_fn(psi_angle_pred.squeeze(), psi_angle_target)
+
+        loss = loss_phi + loss_psi
+
+        # lets_see, pred_dist, target_dist = additional_arg(new_position, new_position_target)
+        # print(lets_see)
+        #################################################################################################
+        name_pred = f"pred__huberloss_batch_{batch_num}_epoch_{epoch}"
+        # plot_3d_graph(new_position_pred, batch, all_atom_position_target, name=name_pred)
+        target_plot_3d_graph(batch['position'][:][:,-1], batch, new_position_target, name=name_pred)
+        # target_plot_3d_graph(new_position, batch, new_position_target, name=name_pred) # THIS ONE is the right one
+        name_target = f"target_batch_{batch_num}_epoch_{epoch}"
+        #################################################################################################
         
         # loss = -acceleration.log_prob(target_acceleration).mean()
         # first_batch = False
@@ -82,19 +102,24 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         all_target_acc.append(target_acceleration.detach().cpu().numpy())
         losses.append(loss.item())
         loss_1000.append(loss)
-        if batch_num % 100 == 0:
-            new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
-            name_pred = f"pred__huberloss_batch_{batch_num}_epoch_{epoch}"
-            # plot_3d_graph(new_position_pred, batch, all_atom_position_target, name=name_pred)
-            new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
-            target_plot_3d_graph(new_position_pred, batch, new_position_target, name=name_pred)
-            name_target = f"target_batch_{batch_num}_epoch_{epoch}"
+        # if batch_num % 100 == 0:
+            # new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
+            # name_pred = f"pred__huberloss_batch_{batch_num}_epoch_{epoch}"
+            # # plot_3d_graph(new_position_pred, batch, all_atom_position_target, name=name_pred)
+            # new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
+            # target_plot_3d_graph(new_position_pred, batch, new_position_target, name=name_pred)
+            # name_target = f"target_batch_{batch_num}_epoch_{epoch}"
             # plot_3d_graph(new_position_target, batch, all_atom_position_target, name=name_target)
 
-            loss, current = loss.item(), (batch_num + 1) * batch['n_particle'].shape[0]
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-        
-        if batch_num % 900 == 0 and batch_num != 0:
+            # loss, current = loss.item(), (batch_num + 1) * batch['n_particle'].shape[0]
+            # print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+        if batch_num % 2000 == 0:
+            print(f"Prediction PHI angles: {phi_angle_pred.squeeze()}")
+            print(f"Target PHI angles: {phi_angle_target}")
+            print(f"Prediction PSI angles: {psi_angle_pred.squeeze()}")
+            print(f"Target PSI angles: {psi_angle_target}")
+
+        if batch_num % 200 == 0 and batch_num != 0:
             print(f"Summed loss equals {sum(loss_1000).item():.3f}")
             # torch.save(model, f"model_epoch_{epoch}_batch_{batch_num}")
             loss_1000 = []
@@ -123,7 +148,7 @@ def main(cfg: DictConfig) -> None:
                                   num_workers=1) 
                                 #   num_workers=cfg.data.datamodule.num_workers.train)
 
-    model = simulator.LearnedSimulatorDiff(connectivity_radius=cfg.model.radius,
+    model = simulator.LearnedSimulator(connectivity_radius=cfg.model.radius,
                                         graph_network_kwargs=cfg.model.gn_hparams,
                                         embedding_network_kwargs=cfg.model.embedding_gn_hparams,
                                         num_particle_types=cfg.model.num_particle_types,
@@ -137,17 +162,18 @@ def main(cfg: DictConfig) -> None:
     get_hyperparam(model)
     ema = EMA(0.995)
     ema_model = copy.deepcopy(model).eval().requires_grad_(False)
-    # loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.MSELoss()
     # loss_fn = torch.nn.L1Loss()
-    loss_fn = torch.nn.HuberLoss()
+    # loss_fn = torch.nn.HuberLoss()
     # loss_fn = MatrixLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optim.optimizer.lr)   
+    loss_updated_real_coords = MatrixLoss()
 
     epochs = 200
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
-        train_loop(train_dataloader, model, ema, ema_model, loss_fn, optimizer, epoch=t, device=device)
+        train_loop(train_dataloader, model, ema, ema_model, loss_fn, optimizer, epoch=t, device=device, additional_arg=loss_updated_real_coords)
 
 if __name__=="__main__":
-    import ipdb; ipdb.set_trace()
+    # import ipdb; ipdb.set_trace()
     main()

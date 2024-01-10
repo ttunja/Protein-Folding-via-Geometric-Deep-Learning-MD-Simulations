@@ -60,3 +60,29 @@ RuntimeError: mat1 and mat2 shapes cannot be multiplied (90x217 and 121x128)
 5) Predict only Psi, Phi and Omega angles!
 
 Each of the phi/psi atom pair (atoms) is used to predict 1 phi/psi angle (which is 1-dimensional)
+
+TAKE THE REAL PSI AND PHI ANGLES, GET A NEW POSITION WITH THEM AND PLOT TO SEE THE DIFFERENCE WITH THE REAL POSITION
+
+TWO ANGLE networks (didnt help)
+
+There is a problem when predicting acceleration (target acceleration not the same as the next acceleration and that shouldnt happen)
+
+Analyze GEMNET, it uses torsion angles in information propagation
+
+Change all activation functions to Swish
+
+ADD RAMACHANDRAN PLOTS
+
+
+TODAY: 
+1) Check if calculation of the torsion angles is correct (it is)
+2) Check the calculation for the next position from torsion angles is correct (they are)
+
+
+
+get the new_positions with the function that we use to update positions
+calculate the angles with calculate_all_torsion_angles_for_trajectories()
+Compare the angles to the target_angles and see if the same
+
+WHY ARE THE STRUCTURES SO FAR APART IN THE LATER STAGES OF VISUALIZATIONS 
+(new_position vs new_position_target)?!?!?

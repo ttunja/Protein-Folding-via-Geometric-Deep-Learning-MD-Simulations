@@ -42,7 +42,7 @@ class MatrixLoss(nn.Module):
         """
         pred_dist_mat = self.distance_matrix(pred)
         target_dist_mat = self.distance_matrix(target)
-        return self.mae(pred_dist_mat, target_dist_mat)
+        return self.mae(pred_dist_mat, target_dist_mat), pred_dist_mat, target_dist_mat
     
     @staticmethod
     def distance_matrix(x):

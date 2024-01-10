@@ -1,13 +1,15 @@
 import os
 import pandas as pd
-import mdtraj
+
 import time 
 from pathlib import Path
-from preprocessing_utils import store_data
+# from preprocessing_utils import store_data
 import copy
 import numpy as np
 import argparse
-from mdtraj import element
+
+# import mdtraj
+# from mdtraj import element
 
 # TODO you have to change all datadir, so that you can specify it
 # TODO automatically preprocess all trajectories in the directory
@@ -103,6 +105,7 @@ def calculate_torsion_angle(atom1, atom2, atom3, atom4):
 
     return np.degrees(np.arctan2(y, x))
 
+
 def calculate_all_torsion_angles_for_trajectories(atom_coords, phi_atoms, psi_atoms): #, omega_atoms):
     """
     Calculate all torsion angles for a given protein structure across multiple trajectories.
@@ -190,7 +193,8 @@ def preprocess_traj(data_dir, topology_dir, data_save_dir):
     for i in range(len(poly_file_dirs)):    
         data = load_protein_data(os.path.join(data_dir, poly_file_dirs[i]), topology_dir)
         os.makedirs(os.path.join(data_save_dir, f"traj_{i}"), exist_ok=True)
-        if not Path(str(os.path.join(data_save_dir, f"traj_{i}", 'bond.h5'))).exists():
+        # if not Path(str(os.path.join(data_save_dir, f"traj_{i}", 'bond.h5'))).exists():
+        if True:
             store_data(['position'], [data[0]], os.path.join(data_save_dir, f"traj_{i}", 'position.h5'))
             store_data(['rgs'], [data[1]], os.path.join(data_save_dir, f"traj_{i}", 'rgs.h5'))
             store_data(['particle_type'], [data[2]], os.path.join(data_save_dir, f"traj_{i}", 'ptype.h5'))

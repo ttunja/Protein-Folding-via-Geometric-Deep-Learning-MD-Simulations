@@ -134,6 +134,9 @@ class ProteinDataset(MDDataset):
     psi_angles = load_data_w_idx(['psi_angles'], self.traj_index[idx_rollout] / 'psi_angles.h5', 
                                       select_idx)[0]
 
+    # phi_angles = phi_angles//360
+    # psi_angles = psi_angles//360
+
     if self.mode == 'train':
       input_pos = positions[:-1]  
       input_rgs = rgs[:-1]
@@ -169,4 +172,3 @@ class ProteinDataset(MDDataset):
     # tensor_dict.update(self.get_cg_stats(tensor_dict))
 
     return tensor_dict
-  
