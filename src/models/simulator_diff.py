@@ -34,16 +34,21 @@ class LearnedSimulatorDiff(LearnedSimulator):
         self.embedding_gn = EncodeProcessDecode(
                                             node_dim=self.particle_type_embedding_size + 1,
                                             edge_dim=self.edge_type_embedding_size,  
-                                            output_size=128, 
+                                            # output_size=128, 
+                                            output_size=32,
                                             **self.embedding_network_kwargs)
 
         # TODO check node_dim, it should be 128, not 21
-        self.score_gn = EncodeProcessDecode(node_dim=128+1,
+        self.score_gn = EncodeProcessDecode(node_dim=32+1,
+                                            # node_dim=128+1,
                                             edge_dim=3+1+32,
-                                            hidden_size=128,
+                                            # hidden_size=128,
+                                            hidden_size=32,
                                             num_hidden_layers=2,
-                                            latent_size=128, 
-                                            num_message_passing_steps=7,
+                                            # latent_size=128,
+                                            latent_size=32 ,
+                                            # num_message_passing_steps=7,
+                                            num_message_passing_steps=3,
                                             output_size=3)
         
     def forward(self, position_seq, next_pos, particle_types, n_node, 
@@ -70,7 +75,9 @@ class LearnedSimulatorDiff(LearnedSimulator):
         sampled_noise = utils.get_position_noise(position_seq, 
                                                  self._noise_std, use_rw=True)
         noisy_position_seq = position_seq + sampled_noise
+        # noisy_position_seq = position_seq # comment out
         noisy_next_pos = next_pos + sampled_noise[:, -1]
+        # noisy_next_pos = next_pos # comment out
 
         sampled_sigmas, noisy_next_pos_2 = self.sample_noisy_pos(noisy_next_pos, n_node)
         target = (-1/(sampled_sigmas.pow(2)) * (noisy_next_pos_2 - noisy_next_pos)).squeeze()
@@ -83,6 +90,7 @@ class LearnedSimulatorDiff(LearnedSimulator):
         acceleration, history_latent_graph = self._graph_network(input_graph, return_latent=True)
 
         target_acceleration = self._inverse_decoder_postprocessor(noisy_next_pos, position_seq)
+        # target_acceleration = self._inverse_decoder_postprocessor(next_pos, position_seq)
 
         history_latent = history_latent_graph.nodes
         score_graph = self._dynamics_preprocessor(noisy_next_pos_2[:, None], history_latent, n_node, 

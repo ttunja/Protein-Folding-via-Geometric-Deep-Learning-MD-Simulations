@@ -64,6 +64,30 @@ class MDDataset(Dataset):
       st_idx = 0
       ed_idx = st_idx + self.traj_len
     return idx_rollout, st_idx, ed_idx
+
+  def get_cg_res(self, tensor_dict):
+    row, col = tensor_dict['bonds'][:, 0], tensor_dict['bonds'][:, 1]
+    cluster = tensor_dict['residue_num']
+    if int(torch.min(tensor_dict['residue_num']))!=0:
+      cluster = cluster-int(torch.min(tensor_dict['residue_num']))
+
+    num_cg_nodes = int(torch.max(cluster))+1
+    # write keypoints as how many atoms each residue has
+    boundary_bonds = (cluster[row] != cluster[col])
+    cg_bonds = torch.cat([cluster[row[boundary_bonds]][:, None], 
+                        cluster[col[boundary_bonds]][:, None]], dim=1)
+    cg_bonds = torch.unique(cg_bonds, dim=0)
+    if num_cg_nodes==35:
+      new_bonds = torch.tensor([[22, 23], [23, 22], [27, 28], [28, 27]])
+      cg_bonds = torch.cat((cg_bonds, new_bonds), dim=0)
+  
+    return {
+        # 'keypoint': keypoints,
+        'n_keypoint': torch.LongTensor([num_cg_nodes]),
+        'cluster': cluster,
+        'cg_bonds': cg_bonds,
+        'n_cg_bond': torch.LongTensor([len(cg_bonds)])
+          }
   
   def get_cg_stats(self, tensor_dict):
     num_cg_nodes = round(int(tensor_dict['n_particle']) / self.grouping)
@@ -108,29 +132,30 @@ class ProteinDataset(MDDataset):
     
     ptype = load_data(['particle_type'], self.traj_index[idx_rollout] / 'ptype.h5')[0]
     # TODO comment out
-    non_hydrogen_ind = list(np.where(ptype!=1)[0])
-    ptype = ptype[non_hydrogen_ind]
+    # non_hydrogen_ind = list(np.where(ptype!=1)[0])
+    # ptype = ptype[non_hydrogen_ind]
     rgs = load_data_w_idx(['rgs'], self.traj_index[idx_rollout] / 'rgs.h5', select_idx)[0]
     bonds = load_data(['bond_indices'], self.traj_index[idx_rollout] / 'bond.h5')[0]
     # TODO comment out
-    new_bonds = []
-    all_values = []
-    real_bonds = []
-    for k in bonds:
-      if (k[0] and k[1]) in non_hydrogen_ind and (k[0] or k[1]) in non_hydrogen_ind:
-        all_values.append(k[0])
-        all_values.append(k[1])
-        new_bonds.append(list(k))
-    all_values = list(set(all_values))
-    for bond in new_bonds:
-      new_list = []
-      new_list.append(all_values.index(bond[0]))
-      new_list.append(all_values.index(bond[1]))
-      real_bonds.append(new_list)
+    # new_bonds = []
+    # all_values = []
+    # real_bonds = []
+    # for k in bonds:
+    #   if (k[0] and k[1]) in non_hydrogen_ind and (k[0] or k[1]) in non_hydrogen_ind:
+    #     all_values.append(k[0])
+    #     all_values.append(k[1])
+    #     new_bonds.append(list(k))
+    # all_values = list(set(all_values))
+    # for bond in new_bonds:
+    #   new_list = []
+    #   new_list.append(all_values.index(bond[0]))
+    #   new_list.append(all_values.index(bond[1]))
+    #   real_bonds.append(new_list)
 
-    bonds = np.array(real_bonds)
-    # bonds = np.array([list(k) for k in  bonds if (k[0] and k[1]) in non_hydrogen_ind])
-    
+    # bonds = np.array(real_bonds)
+    # # bonds = np.array([list(k) for k in  bonds if (k[0] and k[1]) in non_hydrogen_ind])
+    residue = load_data(['residue'], self.traj_index[idx_rollout] / 'residue.h5')[0]
+    residue_num = load_data(['residue_num'], self.traj_index[idx_rollout] / 'residue_num.h5')[0]
     reversed_bonds = np.concatenate([bonds[:, 1:], bonds[:, :1]], axis=1)
     bonds = np.concatenate([bonds, reversed_bonds], axis=0)
     tensor_dict.update({'bonds': np.array(bonds, dtype=np.int64),
@@ -146,7 +171,7 @@ class ProteinDataset(MDDataset):
     positions = load_data_w_idx(['position'], self.traj_index[idx_rollout] / 'position.h5', 
                                       select_idx)[0]
     # TODO comment out
-    positions = positions[:][:][:,non_hydrogen_ind]
+    # positions = positions[:][:][:,non_hydrogen_ind]
     if self.mode == 'train':
       input_pos = positions[:-1]  
       input_rgs = rgs[:-1]
@@ -162,12 +187,14 @@ class ProteinDataset(MDDataset):
         'target': np.array(target_pos, dtype=np.float32),
         'target_rgs': np.array([target_rgs], dtype=np.float32)[None, :],
         'particle_types': np.array(ptype, dtype=np.int64),
-        'n_particle': np.array([target_pos.shape[0]], dtype=np.int64)
+        'n_particle': np.array([target_pos.shape[0]], dtype=np.int64),
+        # 'residue': np.array([residue], dtype=str),
+        'residue_num': np.array(residue_num, dtype=np.int64)
     })
     
     # clustering use torch tensors.
     tensor_dict = {k: torch.from_numpy(v) for k, v in tensor_dict.items()}
-    tensor_dict.update(self.get_cg_stats(tensor_dict))
+    tensor_dict.update(self.get_cg_res(tensor_dict))
 
     return tensor_dict
   
