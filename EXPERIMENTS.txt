@@ -49,4 +49,53 @@ TOMORROW
 - write the new strategy of predicting the angles
 - different training strategy (first optimize for one step, then for 2, then for 4, then for 8, then for 12)
 
-RuntimeError: mat1 and mat2 shapes cannot be multiplied (90x217 and 121x128)
+SUPERPOSITION OR NOT?!?!?!?!?
+TAKE BEADS AS AMINOACIDS
+BIGGER TIMESTEP (Basically what is currently learning is just to predict the last position seq as the new one)
+
+dilation 10
+ipdb> target_acceleration
+tensor([[-1.3556,  0.3389,  0.1776],
+        [ 0.4839,  0.2666,  0.0997],
+        [ 0.7897, -0.7634, -0.1538],
+        [-0.1251,  0.2554,  0.4611],
+        [-0.7061,  0.0213,  0.3725],
+        [ 0.4117, -0.2439, -0.5250],
+        [ 0.4064, -0.1257,  0.2281],
+        [-0.4265,  0.2244,  0.0438],
+        [-0.3385,  0.2510, -0.1928]], device='cuda:0')
+
+ipdb> new_position_target-position_seq[:][:,-1]
+tensor([[ 0.0805,  0.2017,  0.1327],
+        [ 0.1509,  0.1416,  0.1179],
+        [ 0.1197, -0.1465, -0.3032],
+        [-0.1773,  0.1263,  0.2167],
+        [-0.2194, -0.1062,  0.0191],
+        [ 0.2140, -0.3569, -0.3069],
+        [ 0.1132,  0.2277,  0.2128],
+        [-0.2897, -0.1717,  0.2079],
+        [-0.1905,  0.1466, -0.0880]], device='cuda:0')
+
+dilation 1
+
+ipdb> target_acceleration
+tensor([[ 4.1986,  1.7343, -1.8957],
+        [ 1.5323,  1.1726,  0.7145],
+        [ 0.4533,  2.6588, -1.2112],
+        [ 0.6968,  0.4915,  0.0783],
+        [-0.1429, -0.8954,  0.1241],
+        [-1.4205, -5.1204, -0.5154],
+        [-5.2584,  5.0972,  1.2381],
+        [ 0.7114, -2.2371,  3.3538],
+        [ 0.5334, -2.7009, -3.1971]], device='cuda:0')
+
+ipdb> new_position_target-position_seq[:][:,-1]
+tensor([[ 5.3114e-01,  2.7013e+00, -1.4741e+00],
+        [ 1.0571e-03,  1.2542e+00, -1.8167e-01],
+        [-2.3793e+00,  3.7966e+00, -2.1874e+00],
+        [ 4.5110e-02,  1.4530e-01, -4.6010e-01],
+        [ 1.2392e+00, -1.5586e+00, -1.9066e+00],
+        [ 3.5764e-01, -2.3353e+00,  6.5371e-01],
+        [-2.4244e+00, -5.7388e-01, -7.9888e-01],
+        [ 2.1647e+00, -5.7669e-01,  4.7482e+00],
+        [ 4.0912e-01, -2.7409e+00,  1.1839e+00]], device='cuda:0')

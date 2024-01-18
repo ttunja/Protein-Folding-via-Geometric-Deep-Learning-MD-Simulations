@@ -33,10 +33,15 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
 
         particle_masses = torch.FloatTensor(utils.ATOM_MASSES)
         weights = particle_masses[batch['particle_types']].to(DEVICE)
-        cluster, keypoint, n_node, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
-                                                                          ['cluster', 'keypoint', 'n_particle',
+        # cluster, n_node, keypoint, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
+        #                                                                   ['cluster', 'n_particle','keypoint',
+        #                                                                   'n_keypoint', 'bonds', 'cg_bonds', 
+        #                                                                   'position', 'target'])
+        cluster, n_node, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
+                                                                          ['cluster', 'n_particle',
                                                                           'n_keypoint', 'bonds', 'cg_bonds', 
                                                                           'position', 'target'])
+        
         bond_types = batch.get('bond_types')
 
         particle_type_embeddings = model._encoder_preprocessor(batch['particle_types'], n_node, bonds, bond_types, weights)
@@ -45,7 +50,7 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
         use_keypoint_cg = False
         if CG:
             (position_seq, next_pos, processed_embeddings, weights) = coarse_graining(
-                position_seq, next_pos, processed_embeddings, weights, use_keypoint_cg, cluster, keypoint)
+                position_seq, next_pos, processed_embeddings, weights, use_keypoint_cg, cluster)#, keypoint)
             n_node = n_cg_node
             bonds = cg_bonds
 
@@ -65,22 +70,28 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
         all_positions.append(new_position.detach().cpu().unsqueeze(1))
         all_positions_real.append(next_pos.detach().cpu().unsqueeze(1))
 
+        dataloader_iterator = iter(dataloader)
         # Perform a prediction for every timestep in the rollout_len
         for i in tqdm.tqdm(range(rollout_len)):
         ################################################################################################################
-            batch = next(iter(dataloader))
+            batch = next(dataloader_iterator)
 
             # Move all batch tensor to CUDA device
             weights = particle_masses[batch['particle_types']].to(DEVICE)
             batch = {feat_args: tensor.to('cuda') for feat_args, tensor in batch.items()}
-            cluster, keypoint, n_node, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
-                                                                            ['cluster', 'keypoint', 'n_particle',
+            # cluster, n_node, keypoint, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
+            #                                                                 ['cluster', 'n_particle', 'keypoint',
+            #                                                                 'n_keypoint', 'bonds', 'cg_bonds', 
+            #                                                                 'position', 'target'])
+
+            cluster, n_node, n_cg_node, bonds, cg_bonds, position_seq, next_pos = (batch[key] for key in 
+                                                                            ['cluster', 'n_particle', 
                                                                             'n_keypoint', 'bonds', 'cg_bonds', 
                                                                             'position', 'target'])
             particle_type_embeddings = model._encoder_preprocessor(batch['particle_types'], n_node, bonds, bond_types, weights)
             processed_embeddings = model.embedding_gn(particle_type_embeddings)
             (position_seq, next_pos, processed_embeddings, weights) = coarse_graining(
-                position_seq, next_pos, processed_embeddings, weights, use_keypoint_cg, cluster, keypoint)
+                position_seq, next_pos, processed_embeddings, weights, use_keypoint_cg, cluster)#, keypoint)
             n_node = n_cg_node
             bonds = cg_bonds
         ###############################################################################################################
@@ -120,7 +131,7 @@ def main(cfg: DictConfig) -> None:
                                  collate_fn=dict_collate_fn, 
                                  num_workers=2)
     model_dir = os.getenv('MODEL_DIR')
-    model_path = f"{model_dir}/model_overfit_19_batch_13500"
+    model_path = f"{model_dir}/model_overfit_5_batch_98100"
     model = torch.load(model_path)
     rollout = simulate_trajectory(test_dataloader, model, rollout_len, CG=True)
     torch.save(rollout, 'CG_new_overfit_new_rollout.pt')

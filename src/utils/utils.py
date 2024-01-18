@@ -3,7 +3,7 @@ from torch_cluster import radius_graph
 from torch_scatter import scatter
 
 EPSILON = 1e-8
-ATOM_MASSES = [14.007, 1.008, 12.001, 16]
+ATOM_MASSES = [14.007, 1.008, 12.001, 16, 32.0655]
 
 def get_position_noise(position_sequence, noise_std, use_rw=False):
     """

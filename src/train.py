@@ -10,7 +10,7 @@ import torch
 import torch.nn
 from torch.utils.data import DataLoader
 from preprocessing.preprocessing_utils import dict_collate_fn
-from utils.visualizations import plot_3d_graph,  target_plot_3d_graph
+from utils.visualizations import plot_3d_graph,  target_plot_3d_graph, prev_pred_target_plot_3d_graph
 import models.simulator_diff as simulator
 from models.TINGnn import EMA
 import preprocessing.data as data
@@ -45,7 +45,9 @@ def get_hyperparam(model):
 def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, device="cuda"):
     size = len(dataloader.dataset)
     losses = []
+    losses_wo = []
     loss_1000 = []
+    loss_1000_wo = []
     all_target_acc = []
     first_batch=True
     for batch_num, batch in enumerate(tqdm.tqdm(dataloader)):
@@ -59,16 +61,44 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
                                                   batch['particle_types'], batch['n_particle'], 
                                                   batch['bonds'], batch.get('bond_types'),
                                                   batch['cg_bonds'], batch['n_keypoint'], 
-                                                  batch['cluster'], batch['keypoint'])
+                                                  batch['cluster'])#, batch['keypoint'])
             
         # loss = loss_fn(acceleration, target_acceleration)
         new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
         new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
         all_atom_position_target = batch['target']
         # loss = loss_fn(new_position_pred, new_position_target)
+
+        ########## calc distances ###################################################################
+        bonds = batch['cg_bonds']
+        bonds_set = set([tuple(sorted(pair)) for pair in bonds.tolist()])
+        non_duplicate_bonds = torch.tensor(list(bonds_set), device=bonds.device)
+        def calculate_bond_distances(bonds, positions):
+            """
+            Calculate the Euclidean distances between bonded beads.
+
+            :param bonds: Tensor of shape [n_bonds, 2], where each row is a pair of indices representing a bond.
+            :param positions: Tensor of shape [n_beads, 3], where each row is the 3D position of a bead.
+            :return: Tensor of distances for each bond.
+            """
+            # Extract the positions of the first and second atom in each bond
+            start_positions = positions[bonds[:, 0]]
+            end_positions = positions[bonds[:, 1]]
+
+            # Calculate the distances
+            distances = torch.sqrt(torch.sum((start_positions - end_positions) ** 2, dim=1))
+            return distances
+
+        target_bead_dist = calculate_bond_distances(non_duplicate_bonds, new_position_target)
+        pred_bead_dist = calculate_bond_distances(non_duplicate_bonds, new_position_pred)
+        ############################################################################################
+        loss_dist = loss_fn(pred_bead_dist, target_bead_dist)
         loss = loss_fn(acceleration, target_acceleration)
-        loss = loss + score_loss
-        
+        loss = loss + score_loss + loss_dist
+
+        most_recent_velocity = position_seq[:, -1] - position_seq[:, -2]
+        zero = torch.zeros(size=acceleration.shape).cuda()
+        loss_wo_pred = loss_fn(zero, target_acceleration)
         # loss = -acceleration.log_prob(target_acceleration).mean()
         # first_batch = False
         # Backpropagation
@@ -78,23 +108,37 @@ def train_loop(dataloader, model, ema, ema_model, loss_fn, optimizer, epoch, dev
         # ema.step_ema(ema_model, model)
         all_target_acc.append(target_acceleration.detach().cpu().numpy())
         losses.append(loss.item())
+        losses_wo.append(loss_wo_pred.item())
         loss_1000.append(loss)
-        if batch_num % 100 == 0:
-            new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
-            name_pred = f"pred__huberloss_batch_{batch_num}_epoch_{epoch}"
-            # plot_3d_graph(new_position_pred, batch, all_atom_position_target, name=name_pred)
-            new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
-            target_plot_3d_graph(new_position_pred, batch, new_position_target, name=name_pred)
-            name_target = f"target_batch_{batch_num}_epoch_{epoch}"
-            # plot_3d_graph(new_position_target, batch, all_atom_position_target, name=name_target)
+        loss_1000_wo.append(loss_wo_pred)
+        if batch_num % 1000 == 0:
+            # # new_position_pred = model._decoder_postprocessor(acceleration, position_seq)
+            # name_pred = f"target_vs_prev_huberloss_batch_{batch_num}_epoch_{epoch}"
+            # # # plot_3d_graph(new_position_pred, batch, all_atom_position_target, name=name_pred)
+            # # new_position_target = model._decoder_postprocessor(target_acceleration, position_seq)
+            # # target_plot_3d_graph(position_seq[:][:,-1], batch, new_position_target, name=name_pred)
+            # target_plot_3d_graph(new_position_pred, batch, new_position_target, name=name_pred)
+            # # name_target = f"pred_vs_prev_batch_{batch_num}_epoch_{epoch}"
+            # # target_plot_3d_graph(new_position_pred, batch, position_seq[:][:,-1], name=name_target)
+            # # # plot_3d_graph(new_position_target, batch, all_atom_position_target, name=name_target)
 
-            loss, current = loss.item(), (batch_num + 1) * batch['n_particle'].shape[0]
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+            name_coord = f"pred_vs_prev_vs_target_batch_{batch_num}_epoch_{epoch}"
+            # prev_pred_target_plot_3d_graph(position_seq[:][:,-1], new_position_pred, new_position_target, batch, name=name_coord)
+            prev_pred_target_plot_3d_graph(position_seq[:][:, -1], new_position_pred, new_position_target, batch, name=name_coord)
+
+            # loss, current = loss.item(), (batch_num + 1) * batch['n_particle'].shape[0]
+            # print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+
+            # loss_wo_pred, current = loss_wo_pred.item(), (batch_num + 1) * batch['n_particle'].shape[0]
+            # print(f"loss_wo: {loss_wo_pred:>7f}  [{current:>5d}/{size:>5d}]")
         
-        if batch_num % 900 == 0 and batch_num != 0:
+        if batch_num % 900 == 0:# and batch_num != 0:
             print(f"Summed loss equals {sum(loss_1000).item():.3f}")
             # torch.save(model, f"model_epoch_{epoch}_batch_{batch_num}")
             loss_1000 = []
+            print(f"Summed Baseline loss equals {sum(loss_1000_wo).item():.3f}")
+            # torch.save(model, f"model_epoch_{epoch}_batch_{batch_num}")
+            loss_1000_wo = []
 
         if batch_num % 900 == 0 and batch_num != 0:
             model_dir = os.getenv('MODEL_DIR')
@@ -111,11 +155,15 @@ def main(cfg: DictConfig) -> None:
     seed_everything()  
     training_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.train.split, 
                                         directory=cfg.data.dir,
+                                        dilation = 1,
                                         grouping=10)
     train_dataloader = DataLoader(training_data, 
                                   batch_size=cfg.data.batch_size, 
-                                  shuffle=cfg.data.shuffle, 
+                                #   batch_size=1,
+                                #   shuffle=cfg.data.shuffle, 
+                                shuffle=False,
                                   collate_fn=dict_collate_fn, 
+                                #   num_workers=0)
                                   num_workers=cfg.data.datamodule.num_workers.train)
 
     model = simulator.LearnedSimulatorDiff(connectivity_radius=cfg.model.radius,
@@ -128,7 +176,9 @@ def main(cfg: DictConfig) -> None:
                                         sequence_len=cfg.model.seq_len,
                                         noise_std=cfg.model.noise_std)
 
-    model = model.to(device)
+    # model = model.to(device)
+    model_path = "/home/ttunjic/PROTEIN-FOLDING-MODELS/model_overfit_5_batch_98100"
+    model = torch.load(model_path)
     get_hyperparam(model)
     ema = EMA(0.995)
     ema_model = copy.deepcopy(model).eval().requires_grad_(False)

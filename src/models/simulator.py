@@ -58,7 +58,8 @@ class LearnedSimulator(nn.Module):
         self.edge_type_embedding_size = edge_type_embedding_size
 
         self._graph_network = EncodeProcessDecode(
-                node_dim=3*(sequence_len-1) + 128 + 1, # we use sequence_len -1 + 1=use_weights for training
+                # node_dim=3*(sequence_len-1) + 128 + 1, # we use sequence_len -1 + 1=use_weights for training
+                node_dim=3*(sequence_len-1) + 32 + 1,
                 edge_dim=3 + 1 + edge_type_embedding_size,
                 output_size=3, **graph_network_kwargs)
 
