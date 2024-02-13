@@ -1,6 +1,7 @@
-
+random_seed: 1
 expname: ${data.name}_${model.name}
 workdir: ${oc.env:MODEL_DIR}/${expname}
+savedir: ${oc.env:MODEL_DIR}
 core:
   version: 0.0.1
   tags:

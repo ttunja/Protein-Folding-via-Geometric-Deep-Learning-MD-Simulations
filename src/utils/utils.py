@@ -21,6 +21,7 @@ def get_position_noise(position_sequence, noise_std, use_rw=False):
             torch.cumsum(velocity_sequence_noise, dim=1)], dim=1)
     else:
         position_sequence_noise = torch.randn_like(position_sequence) * noise_std
+
     return position_sequence_noise
 
 def compute_connectivity(positions, n_node, radius, bonds=None, add_self_edges=True):
@@ -70,3 +71,24 @@ def coarse_graining(pos_seq, next_pos, ptype_embeddings, weights,
     cg_pos_seq, cg_next_pos = cg_pos_seq[:, :-1], cg_pos_seq[:, -1]
     cg_ptype_embeddings = scatter(ptype_embeddings, cluster, dim=0, reduce='mean')
     return cg_pos_seq, cg_next_pos, cg_ptype_embeddings, cg_weights
+
+
+def compute_weighted_rgs(positions, weights, n_node):
+    """
+    Inputs:
+        positions: N x dim
+        weights: N x 1
+        n_node: B x 1
+    Outputs:
+        rgs: B x 1
+    """
+    weights = weights.view(-1, 1)
+    positions_per_graph_list = torch.split(positions, list(n_node), dim=0)
+    weights_per_graph_list = torch.split(weights, list(n_node), dim=0)
+    all_rgs = []
+    for positions, weights in zip(positions_per_graph_list, weights_per_graph_list):
+        com = (positions * weights).sum(0) / weights.sum()
+        rgs = (weights.squeeze()*((positions - com).pow(2)).sum(1)).sum() / weights.sum()
+        rgs = rgs.sqrt()
+        all_rgs.append(rgs.view(-1))
+    return torch.cat(all_rgs).unsqueeze(1)

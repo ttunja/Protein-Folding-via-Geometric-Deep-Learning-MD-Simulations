@@ -154,8 +154,6 @@ class ProteinDataset(MDDataset):
 
     # bonds = np.array(real_bonds)
     # # bonds = np.array([list(k) for k in  bonds if (k[0] and k[1]) in non_hydrogen_ind])
-    residue = load_data(['residue'], self.traj_index[idx_rollout] / 'residue.h5')[0]
-    residue_num = load_data(['residue_num'], self.traj_index[idx_rollout] / 'residue_num.h5')[0]
     reversed_bonds = np.concatenate([bonds[:, 1:], bonds[:, :1]], axis=1)
     bonds = np.concatenate([bonds, reversed_bonds], axis=0)
     tensor_dict.update({'bonds': np.array(bonds, dtype=np.int64),
@@ -187,14 +185,12 @@ class ProteinDataset(MDDataset):
         'target': np.array(target_pos, dtype=np.float32),
         'target_rgs': np.array([target_rgs], dtype=np.float32)[None, :],
         'particle_types': np.array(ptype, dtype=np.int64),
-        'n_particle': np.array([target_pos.shape[0]], dtype=np.int64),
-        # 'residue': np.array([residue], dtype=str),
-        'residue_num': np.array(residue_num, dtype=np.int64)
+        'n_particle': np.array([target_pos.shape[0]], dtype=np.int64)
     })
     
     # clustering use torch tensors.
     tensor_dict = {k: torch.from_numpy(v) for k, v in tensor_dict.items()}
-    tensor_dict.update(self.get_cg_res(tensor_dict))
+    tensor_dict.update(self.get_cg_stats(tensor_dict))
 
     return tensor_dict
   

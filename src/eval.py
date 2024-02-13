@@ -121,17 +121,17 @@ def simulate_trajectory(dataloader, model, rollout_len, CG=False):
     
 @hydra.main(config_path="conf", config_name="chignolin")        
 def main(cfg: DictConfig) -> None:
-    rollout_len = 200
+    rollout_len = 2000
     test_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.test.split, 
                                     directory=cfg.data.dir,
-                                    grouping=10)
+                                    grouping=100)
     test_dataloader = DataLoader(test_data, 
                                  batch_size=1, 
                                  shuffle=False, 
                                  collate_fn=dict_collate_fn, 
-                                 num_workers=2)
+                                 num_workers=4)
     model_dir = os.getenv('MODEL_DIR')
-    model_path = f"{model_dir}/model_overfit_5_batch_98100"
+    model_path = f"{model_dir}/model_overfit_19_batch_27900"
     model = torch.load(model_path)
     rollout = simulate_trajectory(test_dataloader, model, rollout_len, CG=True)
     torch.save(rollout, 'CG_new_overfit_new_rollout.pt')
