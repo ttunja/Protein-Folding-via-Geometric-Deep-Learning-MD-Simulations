@@ -30,7 +30,7 @@ def run_eval(cfg):
     #   return
     
     # last_model_dir = Path(cfg.model_dir) / 'last.ckpt'
-    last_model_dir = Path("/home/ttunjic/MY_POLYMER_MODELS/chignolin_TINGnn/model_epoch_16") # TODO change
+    last_model_dir = Path("/home/ttunjic/MY_POLYMER_MODELS/chignolin_TINGnn/model_epoch_18") # TODO change
     if last_model_dir.exists():
         ckpt_path = str(last_model_dir)
     else:

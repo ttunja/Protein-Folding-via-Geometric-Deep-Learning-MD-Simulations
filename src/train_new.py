@@ -17,6 +17,17 @@ from models.simulator_diff import CustomScheduleLR
 import preprocessing.data as data
 from utils.custom_losses import MatrixLoss
 
+# import pytorch_lightning as pl
+# from omegaconf import DictConfig  # , OmegaConf
+# from pytorch_lightning import seed_everything, Callback
+# from pytorch_lightning.plugins import DDPPlugin
+# from pytorch_lightning.callbacks import (
+#     EarlyStopping,
+#     LearningRateMonitor,
+#     ModelCheckpoint,
+# )
+# from pytorch_lightning.loggers import WandbLogger
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def seed_everything(seed=42):
@@ -72,7 +83,7 @@ def train_loop(dataloader, model, optimizer, scheduler, epoch, device="cuda"):
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=20.0)
         optimizer.step()
-        # scheduler.step()
+        scheduler.step()
 
         losses.append(loss.detach().item())
         loss_1000.append(loss.detach())
@@ -80,7 +91,7 @@ def train_loop(dataloader, model, optimizer, scheduler, epoch, device="cuda"):
             print(f"Summed loss equals {sum(loss_1000).item():.3f}")
             # torch.save(model, f"model_epoch_{epoch}_batch_{batch_num}")
             loss_1000 = []
-    scheduler.step()
+    
     torch.save(model, f"model_epoch_{epoch}")
     print(f"Epoch loss={sum(losses):.3f}")
     return losses
@@ -89,7 +100,7 @@ def train_loop(dataloader, model, optimizer, scheduler, epoch, device="cuda"):
 @hydra.main(config_path="conf", config_name="chignolin")
 def main(cfg: DictConfig) -> None:
 
-    seed_everything()  
+    # seed_everything()  
     training_data = data.ProteinDataset(split=cfg.data.datamodule.datasets.train.split, 
                                         directory=cfg.data.dir,
                                         dilation = 1,
@@ -121,7 +132,7 @@ def main(cfg: DictConfig) -> None:
                                  decay_steps=2e6, 
                                  decay_rate=0.1)
 
-    epochs = 30
+    epochs = 18
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_dataloader, model, optimizer, scheduler, epoch=t, device=device)

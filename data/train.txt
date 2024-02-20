@@ -88,13 +88,3 @@ poly00142
 poly00393
 poly01121
 poly01143
-poly01413
-poly00397
-poly00288
-poly01503
-poly00333
-poly00219
-poly01162
-poly00012
-poly00039
-poly00779
