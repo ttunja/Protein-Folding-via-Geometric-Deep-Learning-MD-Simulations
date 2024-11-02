@@ -47,11 +47,3 @@ traj_46
 traj_47
 traj_48
 traj_49
-traj_50
-traj_51
-traj_52
-traj_53
-traj_54
-traj_55
-traj_56
-traj_57

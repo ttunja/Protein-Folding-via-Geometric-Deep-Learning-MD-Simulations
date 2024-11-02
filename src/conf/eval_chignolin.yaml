@@ -1,0 +1,28 @@
+random_seed: 1
+rollout_length: 530
+batch_size: 16
+num_batches: 1
+deter: False
+shuffle: False
+save_pos: True
+save_frequency: 1
+grouping: 10
+model_dir: /home/ttunjic/PROTEIN-FOLDING-MODELS
+folded_protein: /home/ttunjic/Protein_Data/Folded Proteins/2rvd.pdb
+save_dir: ${model_dir}
+
+ld_kwargs:
+  step_per_sigma: 5
+  step_size: 0.0001
+
+data:
+  _target_: preprocessing.data.ProteinDataset
+  # directory: ${oc.env:PROTEIN_TEST_DATASET_DIR}
+  directory: ${oc.env:PROTEIN_DATASET_DIR}
+  split: ${oc.env:PROJECT_ROOT}/data/test_chignolin.txt
+  mode: rollout
+  recursive_metis: False
+
+hydra:
+  run:
+    dir: ${save_dir}

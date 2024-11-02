@@ -1,7 +1,8 @@
 import models.graphs as graphs
-from models.TINGnn import EncodeProcessDecode
+from models.TINGnn import EncodeProcessDecode, build_mlp, GraphPooling
 import math
 import hydra
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 from torch.distributions.normal import Normal
@@ -19,13 +20,15 @@ class LearnedSimulator(nn.Module):
         connectivity_radius,
         graph_network_kwargs,
         embedding_network_kwargs,
-        # normalization_stats,
+        property_network_kwargs,
         num_particle_types,
         num_bond_types,
         particle_type_embedding_size,
         edge_type_embedding_size,
         sequence_len,
-        noise_std
+        noise_std,
+        deterministic,
+        **kwargs
         ):
         """Inits the model.
         Args:
@@ -44,24 +47,34 @@ class LearnedSimulator(nn.Module):
         name: Name of the Sonnet module.
         """
         super().__init__()
-
         self.soft_plus = torch.nn.Softplus()
         self._connectivity_radius = connectivity_radius
         self._num_bond_types = num_bond_types
-        self.particle_masses = torch.FloatTensor(utils.ATOM_MASSES)
-        # self._normalization_stats = normalization_stats
+        self.particle_masses = torch.FloatTensor(utils.PSEUDO_MASSES)
         self._sequence_len = sequence_len
         self._noise_std = noise_std
-        self.use_coarse_graining = True#(self.hparams.cg_level > 1) or ('use_keypoint_for_cg' in self.hparams and self.hparams.use_keypoint_for_cg)
+        self.use_coarse_graining = True
+        self.deterministic = deterministic
         self.embedding_network_kwargs = embedding_network_kwargs
         self.particle_type_embedding_size = particle_type_embedding_size
         self.edge_type_embedding_size = edge_type_embedding_size
+        self.graph_network_kwargs = graph_network_kwargs
+        self.property_network_kwargs = property_network_kwargs
 
-        self._graph_network = EncodeProcessDecode(
-                # node_dim=3*(sequence_len-1) + 128 + 1, # we use sequence_len -1 + 1=use_weights for training
-                node_dim=3*(sequence_len-1) + 32 + 1,
-                edge_dim=3 + 1 + edge_type_embedding_size,
-                output_size=3, **graph_network_kwargs)
+        self.embedding_gn = EncodeProcessDecode(
+                                        node_dim=self.particle_type_embedding_size, #+ 1,
+                                        edge_dim=self.edge_type_embedding_size,  
+                                        # output_size=128, 
+                                        # output_size=32,
+                                        **self.embedding_network_kwargs)
+
+
+        # rnn for velocity sequence
+        self.velocity_rnn = nn.RNN(input_size=3, hidden_size=87, num_layers=1)
+        self.velocity_out = nn.Linear(87, 87)
+
+        self.edges_rnn = nn.RNN(input_size=4, hidden_size=116, num_layers=1)
+        self.edges_out = nn.Linear(116, 4)
 
         self.type_embedding = nn.Embedding(num_particle_types, particle_type_embedding_size)
         nn.init.xavier_uniform_(self.type_embedding.weight)
@@ -73,90 +86,159 @@ class LearnedSimulator(nn.Module):
         
         self.edge_type_embedding = nn.Embedding(2, edge_type_embedding_size)  # 2 types: real bonds vs radius edge.   
         nn.init.xavier_uniform_(self.edge_type_embedding.weight)
+
+        self.graph_pool = GraphPooling(reducers=['mean'])
+        # self.property_head = build_mlp(input_size=128, 
+        #                                hidden_size=256, 
+        #                                num_hidden_layers=2, 
+        #                                output_size=1)
+        self.property_head = build_mlp(input_size=self.embedding_network_kwargs.output_size, 
+                                       **self.property_network_kwargs)
+
+        self.sigmas = torch.linspace(math.log(0.1), 
+                                    math.log(0.01), 
+                                    10).exp()#.to('cuda')
+        self.sigmas.requires_grad = False
         
-    def forward(self, position_seq, next_pos, particle_types, n_node, 
-                bonds=None, bond_types=None, cg_bonds=None, n_cg_node=None,
-                cluster=None, keypoint=None):
-        
+
+    def forward(self):
+        raise NotImplementedError
+    
+    def predict(self):
+        raise NotImplementedError
+
+    def simulate(self, batch, rollout_length, 
+               deter=False, save_positions=False, save_frequency=1,
+               disable_bar=False):
+        """
+        simulate CGMD from a data batch of length <rollout_length>.
+        deter:          if <True>, predict deterministically.
+        save_positions: if <True>, save the rollout bead positions.
+        save_frequency: frameskip when recording the trajectory.
+        disable_bar:    if <True>, disable the progress bar.
+        """
+        output = {}
+        position_seq, next_pos = batch['position'], batch['target']
+        position_seq = position_seq[:, :30]
         if self.particle_masses.device != position_seq.device:
             self.particle_masses = self.particle_masses.to(position_seq.device)
         
-        weights = self.particle_masses[particle_types]
-        particle_type_embeddings = self._encoder_preprocessor(particle_types)
-        
+        n_node, ptypes = batch['n_particle'], batch['particle_types']
+        bonds = batch['bonds']
+        bond_types = batch.get('bond_types')
+        weights = self.particle_masses[ptypes]
+        particle_type_embeddings = self._encoder_preprocessor(ptypes, n_node, bonds, bond_types, weights)
         use_keypoint_cg = False
-        # coarse graining.
         if self.use_coarse_graining:
             (position_seq, next_pos, particle_type_embeddings, weights) = coarse_graining(
-                position_seq, next_pos, particle_type_embeddings, weights, use_keypoint_cg, cluster, keypoint)
-        n_node = n_cg_node
-        bonds = cg_bonds  # only operate at coarse-level after this point.
+                position_seq, next_pos, particle_type_embeddings, weights, use_keypoint_cg,
+                batch.get('cluster'), batch.get('keypoint'))
 
-        sampled_noise = utils.get_position_noise(position_seq, 
-                                                 self._noise_std, use_rw=True)
-        noisy_position_seq = position_seq + sampled_noise
-        noisy_next_pos = next_pos + sampled_noise[:, -1]
-
-        input_graph = self._dynamics_preprocessor(noisy_position_seq, particle_type_embeddings, n_node, 
-                                                 bonds, bond_types, weights=weights)
-
-
-
-        acceleration = self._graph_network(input_graph)
-
-        target_acceleration = self._inverse_decoder_postprocessor(noisy_next_pos, position_seq)
-
-        return acceleration, target_acceleration, position_seq
-    
-    def predict(self, position_seq, particle_type_embeddings, 
-                n_node, bonds=None, bond_types=None, weights=None):
+            n_node = batch.get('n_keypoint')
+            bonds = batch.get('cg_bonds')
+        output['cg_u_pos'] = position_seq.detach().clone().cpu()
+        output['cg_weights'] = weights
         
-        input_graph = self._dynamics_preprocessor(position_seq, particle_type_embeddings, n_node, 
-                                                 bonds, bond_types, weights=weights)
+        all_positions = []
+        all_props = []
+        for t in tqdm(range(rollout_length), disable=disable_bar):
+            next_pos_pred, prop_pred = self.predict(
+                position_seq, particle_type_embeddings, n_node, bonds, bond_types, weights)
+            position_seq = torch.cat([position_seq[:, 1:], next_pos_pred.unsqueeze(1)], dim=1)
+            if t % save_frequency == 0:
+                all_positions.append(next_pos_pred.detach().cpu().unsqueeze(1))
+            if prop_pred is not None:
+                all_props.append(prop_pred.detach().cpu())
 
-        acceleration = self._graph_network(input_graph)
+        if save_positions:
+            output['rollout_u_pos'] = torch.cat(all_positions, dim=1)
+        
+        if prop_pred is not None:
+            output['rollout_prop'] = torch.cat(all_props, dim=1)
+        
+        return output
 
-        new_position = self._decoder_postprocessor(acceleration, position_seq)
-
-        return new_position
-
-    def _encoder_preprocessor(self, particle_types):
+    def _encoder_preprocessor(self, particle_types, n_node, bonds=None, bond_types=None, weights=None):
         # Node features    
+        self.type_embedding.to(particle_types.device)
         particle_type_embeddings = self.type_embedding(particle_types)
-        return particle_type_embeddings
+        if not self.embedding_network_kwargs:
+            return particle_type_embeddings
+        else:
+            assert bonds is not None, 'an embedding network should only be used when the \
+                                        ground truth graph contains bonds.'                        
+            senders, receivers = bonds[:, 0], bonds[:, 1]
+            edge_embeddings = particle_type_embeddings[senders] + particle_type_embeddings[receivers]
+            
+            # TODO check with ipdb
+            if bond_types is not None:
+                edge_embeddings += self.bond_type_embedding(bond_types)
+            
+            # if weights is not None:
+            #     particle_type_embeddings = torch.cat([particle_type_embeddings, weights.view(-1, 1)], dim=-1)
+                
+            graph_tuple = graphs.GraphsTuple(
+                nodes=particle_type_embeddings,
+                edges=edge_embeddings,
+                edge_type=None,
+                coords=None,
+                globals=None,
+                n_node=n_node,
+                senders=senders,
+                receivers=receivers)
+                
+            return self.embedding_gn(graph_tuple)
     
     def _dynamics_preprocessor(self, position_seq, particle_type_embeddings, n_node,
                                bonds=None, bond_types=None, weights=None):
-        
-        velocity_sequence = self.time_diff(position_seq)  # Finite-difference.
-        flat_vel_seq = torch.reshape(velocity_sequence, 
-                                    [velocity_sequence.shape[0], 
-                                     math.prod(velocity_sequence.shape[1:])])
-        if weights is not None:
-            node_features = torch.cat([flat_vel_seq, particle_type_embeddings, weights.view(-1, 1)], dim=-1)
+            # node features.
+        vel_seq = self.time_diff(position_seq)  # Finite-difference.
+        flat_vel_seq = torch.reshape(vel_seq, [vel_seq.shape[0], math.prod(vel_seq.shape[1:])])
+
+        if vel_seq.shape[1]!=0:
+            rnn_out, _ = self.velocity_rnn(vel_seq)  
+            final_vel_out = self.velocity_out(rnn_out[:, -1, :]) 
+            # if self.hparams.use_weights and weights is not None:
+            #     node_features = torch.cat([flat_vel_seq, particle_type_embeddings, weights], dim=-1)
+            # # node_features = torch.cat([final_vel_out, particle_type_embeddings, weights], dim=-1)
+            # else:
+            #     node_features = torch.cat([flat_vel_seq, particle_type_embeddings], dim=-1)
+            node_features = torch.cat([final_vel_out, particle_type_embeddings], dim=-1)    
         else:
             node_features = torch.cat([flat_vel_seq, particle_type_embeddings], dim=-1)
-        
+        most_recent_pos = position_seq[:, -1]
 
-        # Edge features
-        # NOT SURE            
-        # senders, receivers = bonds[:, 0], bonds[:, 1]
-        # edge_embeddings = ptype_embeddings[senders] + ptype_embeddings[receivers]
-        edge_embeddings = None
-        if bond_types is not None and self._num_bond_types > 0:
-            edge_embeddings = self.bond_type_embedding(bond_types)
-        most_recent_position = position_seq[:, -1]
-        # Get connectivity of the graph.
         senders, receivers, displacements, distances, edge_types = utils.compute_connectivity(
-                            most_recent_position, n_node, self._connectivity_radius, bonds)
-        # TODO change this part of code
-        if edge_embeddings is not None:
-            edge_embeddings += self.edge_type_embedding(edge_types)
+                most_recent_pos, n_node, self._connectivity_radius, bonds)
+        
+        displacement_seq_list = []
+        distance_seq_list = []  
+
+        for i in range(position_seq.shape[1] - 1):
+            most_recent_pos = position_seq[:, i + 1]
+            senders, receivers, displacements, distances, edge_types = utils.compute_connectivity(
+                    most_recent_pos, n_node, self._connectivity_radius, bonds, senders=senders, receivers=receivers)
+        
+            # Append to the lists
+            displacement_seq_list.append(displacements.unsqueeze(1))  # Add a new axis to match the desired shape
+            distance_seq_list.append(distances.unsqueeze(1))  # Add a new axis to match the desired shape
+
+        # max_edges = max([t.size(0) for t in displacement_seq_list])
+        if displacement_seq_list:
+            displacement_seq = torch.cat(displacement_seq_list, dim=1)
+            distance_seq = torch.cat(distance_seq_list, dim=1)
+
+            combined_seq = torch.cat((displacement_seq, distance_seq), dim=2)
+            rnn_edges_out, _ = self.edges_rnn(combined_seq)  
+            final_edges_out = self.edges_out(rnn_edges_out[:, -1, :]) 
+
+            edge_embeddings = self.edge_type_embedding(edge_types)
+            edge_features = torch.cat([final_edges_out, edge_embeddings], dim=-1)
+
         else:
             edge_embeddings = self.edge_type_embedding(edge_types)
-
-        edge_features = torch.cat([displacements, distances, edge_embeddings], dim=-1)
-        
+            edge_features = torch.cat([displacements, distances, edge_embeddings], dim=-1)
+            
         return graphs.GraphsTuple(
             nodes=node_features,
             edges=edge_features,
@@ -167,30 +249,18 @@ class LearnedSimulator(nn.Module):
             senders=senders,
             receivers=receivers)
 
-    def _decoder_postprocessor(self, acceleration, position_seq):
-        """apply <acceleration> to <position_seq> to get next position."""
-        most_recent_pos = position_seq[:, -1]
-        most_recent_velocity = most_recent_pos - position_seq[:, -2]
-        new_velocity = most_recent_velocity + acceleration  # * dt = 1
-        new_pos = most_recent_pos + new_velocity  # * dt = 1
-        return new_pos
-
-
-    def _inverse_decoder_postprocessor(self, next_position, position_seq):
-        """Inverse of `_decoder_postprocessor`."""
-
-        previous_position = position_seq[:, -1]
-        previous_velocity = previous_position - position_seq[:, -2]
-        next_velocity = next_position - previous_position
-        acceleration = next_velocity - previous_velocity
-
-        # TODO Normalize acceleration (for faster convergence)
-        # acceleration_stats = self._normalization_stats["acceleration"]
-        # normalized_acceleration = (
-        #     acceleration - acceleration_stats.mean) / acceleration_stats.std
-        # return normalized_acceleration
-        return acceleration
-
-
     def time_diff(self, input_sequence):
         return input_sequence[:, 1:] - input_sequence[:, :-1]
+
+    def predict_prop(self, latent_graph, pos, weights, n_node, prop='rgs'):
+        """
+        predict the the specified property if applicable.
+        For certain properties, we can compute from the CG state and fit the
+        residual using a neural network on top of the latent graph.
+        """
+        pooled_graph = self.graph_pool(latent_graph.nodes.detach(), 
+                                      latent_graph.n_node.detach())
+        pred = self.property_head(pooled_graph)
+        if prop == 'rgs':
+            pred = pred + utils.compute_weighted_rgs(pos.detach(), weights.detach(), n_node)
+        return pred

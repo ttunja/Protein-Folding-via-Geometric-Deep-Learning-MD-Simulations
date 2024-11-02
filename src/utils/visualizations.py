@@ -1,4 +1,4 @@
-# cor_matrix=torch.corrcoef(positions[:166])
+
 import os
 import pickle
 import matplotlib.pyplot as plt
@@ -6,7 +6,12 @@ from chart_studio import plotly as py
 from plotly.offline import iplot
 import plotly.graph_objs as go
 from plotly.io import write_image
+from plotly.subplots import make_subplots
+import numpy as np
 import torch
+from sklearn.neighbors import KernelDensity
+import seaborn as sns
+from scipy.stats import gaussian_kde
 # with open ("C:/Users/ttunj/TINGnn/Protein-Folding-via-Geometric-Deep-Learning-MD-Simulations/corr_matrix.pkl", "rb") as fp:
 #     cor = pickle.load(fp)
 
@@ -14,6 +19,224 @@ import torch
 
 # plt.matshow(cor.cpu().detach().numpy())
 # plt.show()
+
+def plot_scatter(y1, y2=None, name=None):
+
+    x_array = np.arange(1, y1.shape[0]+1)
+
+    # Create traces
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x_array, y=y1,
+                        mode='lines',
+                        name='Predicted'))
+    if y2 is not None:
+        assert y1.shape[0]==y2.shape[0], "Two arrays are not same in length"
+        fig.add_trace(go.Scatter(x=x_array, y=y2,
+                            mode='lines',
+                            name='Real'))
+
+    fig.write_image(name)
+
+def KDE_scatter2d(pred_acceleration, acceleration, name):
+ # Assuming you have `true_acceleration` and `predicted_acceleration` of shape (N_beads, N_frames, 3)
+
+    # Step 1: Flatten the acceleration data into a 2D array of shape (N_frames*N_beads, 3)
+    true_acc_flat = np.array(acceleration.reshape(-1, 3))
+    pred_acc_flat = np.array(pred_acceleration.reshape(-1, 3))
+
+    # Step 2: Estimate the Kernel Density for both true and predicted accelerations
+    kde_true = KernelDensity(kernel='gaussian', bandwidth=0.2).fit(true_acc_flat)
+    kde_pred = KernelDensity(kernel='gaussian', bandwidth=0.2).fit(pred_acc_flat)
+
+    # Adjust grid limits to cover both true and predicted data
+    x_min, y_min, z_min = np.min(true_acc_flat, axis=0)
+    x_max, y_max, z_max = np.max(true_acc_flat, axis=0)
+
+    # Create a grid over the 3D space (you can adjust the range/resolution)
+    x_grid = np.linspace(x_min, x_max, 100)
+    y_grid = np.linspace(y_min, y_max, 100)
+    z_grid = np.linspace(z_min, z_max, 100)
+    X, Y, Z = np.meshgrid(x_grid, y_grid, z_grid)
+
+    # Combine grid points into a list of 3D coordinates
+    grid_points = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
+
+    # Evaluate the densities on the grid points
+    true_density = np.exp(kde_true.score_samples(grid_points))
+    pred_density = np.exp(kde_pred.score_samples(grid_points))
+
+    # Reshape densities to match the grid shape
+    true_density = true_density.reshape(X.shape)
+    pred_density = pred_density.reshape(X.shape)
+
+    z_plane_idx = 50
+    x_slice = X[:, :, z_plane_idx]
+    y_slice = Y[:, :, z_plane_idx]
+    true_density_slice = true_density[:, :, z_plane_idx]
+    pred_density_slice = pred_density[:, :, z_plane_idx]
+
+    # Create a figure with two subplots: one for true KDE, one for predicted KDE
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("True Acceleration KDE", "Predicted Acceleration KDE"))
+
+    # Plot true density slice
+    fig.add_trace(go.Contour(
+        z=true_density_slice,
+        x=x_slice[0],  # The x coordinates
+        y=y_slice[:, 0],  # The y coordinates
+        colorscale='Blues',
+        contours=dict(showlabels=False),
+    ), row=1, col=1)
+
+    # Plot predicted density slice
+    fig.add_trace(go.Contour(
+        z=pred_density_slice,
+        x=x_slice[0],  # The x coordinates
+        y=y_slice[:, 0],  # The y coordinates
+        colorscale='Reds',
+        contours=dict(showlabels=False),
+    ), row=1, col=2)
+
+    # Update layout
+    fig.update_layout(height=600, width=1000, title_text="KDE Comparison of True and Predicted Accelerations at z-plane 50")
+    fig.write_image(name)
+
+    return true_density, pred_density
+
+def KDE_scatter3d(pred_acceleration, acceleration, name):
+    # Step 1: Flatten the acceleration data into a 2D array of shape (N_frames*N_beads, 3)
+    true_acc_flat = np.array(acceleration.reshape(-1, 3))
+    pred_acc_flat = np.array(pred_acceleration.reshape(-1, 3))
+
+    # Step 2: Estimate the Kernel Density for both true and predicted accelerations
+    kde_true = KernelDensity(kernel='gaussian', bandwidth=0.1).fit(true_acc_flat)
+    kde_pred = KernelDensity(kernel='gaussian', bandwidth=0.1).fit(pred_acc_flat)
+
+    # Generate a grid of points over the range of data to evaluate the densities
+    x_min, y_min, z_min = np.min(true_acc_flat, axis=0)
+    x_max, y_max, z_max = np.max(true_acc_flat, axis=0)
+
+    # Create a grid over the 3D space (you can adjust the range/resolution)
+    x_grid = np.linspace(x_min, x_max, 100)
+    y_grid = np.linspace(y_min, y_max, 100)
+    z_grid = np.linspace(z_min, z_max, 100)
+    X, Y, Z = np.meshgrid(x_grid, y_grid, z_grid)
+
+    # Combine grid points into a list of 3D coordinates
+    grid_points = np.vstack([X.ravel(), Y.ravel(), Z.ravel()]).T
+
+    # Evaluate the densities on the grid points
+    true_density = np.exp(kde_true.score_samples(grid_points))
+    pred_density = np.exp(kde_pred.score_samples(grid_points))
+
+    # Reshape densities to match the grid shape
+    true_density = true_density.reshape(X.shape)
+    pred_density = pred_density.reshape(X.shape)
+    # Select a threshold to display only points with significant density values
+    threshold = 0.01  # You can adjust this to control the sparsity of the plot
+
+    # Flatten the grid and densities to match the scatter3d input
+    x_flat = X.ravel()
+    y_flat = Y.ravel()
+    z_flat = Z.ravel()
+    true_density_flat = true_density.ravel()
+    pred_density_flat = pred_density.ravel()
+
+    # Filter points where the density is above the threshold
+    true_filter = true_density_flat > threshold
+    pred_filter = pred_density_flat > threshold
+
+    # True acceleration KDE 3D scatter plot
+    true_scatter = go.Scatter3d(
+        x=x_flat[true_filter],
+        y=y_flat[true_filter],
+        z=z_flat[true_filter],
+        mode='markers',
+        marker=dict(
+            size=5,
+            color=true_density_flat[true_filter],  # Use density values to color the points
+            colorscale='Blues',
+            opacity=0.8,
+            colorbar=dict(title='True Density'),
+        ),
+        name='True KDE'
+    )
+
+    # Predicted acceleration KDE 3D scatter plot
+    pred_scatter = go.Scatter3d(
+        x=x_flat[pred_filter],
+        y=y_flat[pred_filter],
+        z=z_flat[pred_filter],
+        mode='markers',
+        marker=dict(
+            size=5,
+            color=pred_density_flat[pred_filter],  # Use density values to color the points
+            colorscale='Reds',
+            opacity=0.8,
+            colorbar=dict(title='Predicted Density'),
+        ),
+        name='Predicted KDE'
+    )
+
+    # Create the figure with both true and predicted scatter plots
+    fig = go.Figure(data=[true_scatter, pred_scatter])
+
+    # Update layout
+    fig.update_layout(
+        title='3D Scatter Plot of True and Predicted KDE',
+        scene=dict(
+            xaxis_title='X',
+            yaxis_title='Y',
+            zaxis_title='Z'
+        ),
+        legend=dict(x=0.85, y=0.9)
+    )
+
+    # save the image
+    fig.write_image(name)
+
+
+def plot_ramachandran(phi_angles, psi_angles, name):
+    """
+    Plot a high-quality Ramachandran plot with density estimation.
+    """
+    plt.figure(figsize=(8, 6))
+    
+    # Perform 2D Kernel Density Estimation (KDE)
+    xy = np.vstack([phi_angles, psi_angles])
+    kde = gaussian_kde(xy)(xy)
+    
+    # Sort the points by density, so high-density points are plotted on top
+    idx = kde.argsort()
+    phi_angles, psi_angles, kde = phi_angles[idx], psi_angles[idx], kde[idx]
+    
+    # Add contour lines to emphasize high-density regions
+    sns.kdeplot(x=phi_angles, y=psi_angles, cmap='Blues', shade=True, levels=10, linewidths=1.5)
+
+    # Scatter plot with density coloring
+    plt.scatter(phi_angles, psi_angles, c=kde, s=10, cmap='coolwarm', edgecolor='black')
+
+    # Set limits for the axes
+    plt.xlim(-180, 180)
+    plt.ylim(-180, 180)
+
+    # Label the axes and set the title
+    plt.xlabel("Phi angles (degrees)", fontsize=14)
+    plt.ylabel("Psi angles (degrees)", fontsize=14)
+    plt.title("Pseduo-Ramachandran Plot", fontsize=16)
+
+    # Adjust tick marks and grid
+    plt.xticks(np.arange(-180, 181, 60), fontsize=12)
+    plt.yticks(np.arange(-180, 181, 60), fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+
+    # Add colorbar to indicate density
+    cbar = plt.colorbar()
+    cbar.set_label('Density', fontsize=12)
+
+    # Save the plot as an image
+    plt.tight_layout()
+    plt.savefig(name, dpi=300)
+
 
 def plot_3d_graph(new_position, batch, real_position, name):
 

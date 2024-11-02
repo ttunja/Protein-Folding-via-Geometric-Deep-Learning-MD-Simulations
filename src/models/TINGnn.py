@@ -17,6 +17,17 @@ def activation_func(act:str="relu"):
         return F.leaky_relu()
     else:
         return F.softplus(beta=1)
+def reducer(x, reducer='max'):
+    if reducer == 'max':
+        return torch.max(x, dim=0, keepdim=True)[0]
+    elif reducer == 'min':
+        return torch.min(x, dim=0, keepdim=True)[0]
+    elif reducer == 'sum':
+        return torch.sum(x, dim=0, keepdim=True)
+    elif reducer == 'mean':
+        return torch.mean(x, dim=0, keepdim=True)
+    else:
+        raise NotImplementedError
 
 def build_mlp(input_size, hidden_size, output_size, num_hidden_layers, 
               activation="relu", use_layer_norm=False):
@@ -25,7 +36,7 @@ def build_mlp(input_size, hidden_size, output_size, num_hidden_layers,
     layers = [nn.Linear(input_size, hidden_size), nn.ReLU()]
     
     # Add hidden layers
-    for i in range(num_hidden_layers):
+    for i in range(num_hidden_layers-1):
         layers.append(nn.Linear(hidden_size, hidden_size))
         # layers.append(activation_func(activation))
         layers.append(nn.ReLU())
@@ -143,6 +154,31 @@ class TemporalInteractionNetwork(nn.Module):
         graph = self._edge_block(graph)
         graph = self._node_block(graph)
         return graph
+
+class GraphPooling(nn.Module):
+  
+    def __init__(self, 
+                use_nodes=True, 
+                use_edges=False, 
+                use_globals=False,
+                reducers=['max']):
+        super(GraphPooling, self).__init__()
+        self._use_nodes = use_nodes
+        self._use_edges = use_edges
+        self._use_globals = use_globals
+        self._reducers = reducers
+  
+    def forward(self, nodes, n_node):
+        nodes_per_graph_list = torch.split(nodes, list(n_node), dim=0)
+        pooled_nodes_list = []
+        for nodes_graph_i in nodes_per_graph_list:
+            pooled_nodes_i = []
+            for _reducer in self._reducers:
+                pooled_nodes_i.append(reducer(nodes_graph_i, _reducer)) 
+            pooled_nodes_i = torch.cat(pooled_nodes_i, dim=1)  # 1 x len(self._reducer)*dim
+            pooled_nodes_list.append(pooled_nodes_i)
+        pooled_nodes = torch.cat(pooled_nodes_list, dim=0)
+        return pooled_nodes
 
 class EncodeProcessDecode(nn.Module):
 
