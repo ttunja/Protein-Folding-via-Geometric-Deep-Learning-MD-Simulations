@@ -381,7 +381,7 @@ def main(cfg: DictConfig) -> None:
     # model_dir = os.getenv('MODEL_DIR')
     model_dir = cfg.model_dir
     # model_dir = "/home/ttunjic/PROTEIN-FOLDING-MODELS/Chignolin/less_hparams_more_mp_steps"
-    model_path = f"{model_dir}/model_11"
+    model_path = f"{model_dir}/model_18"
     model = torch.load(model_path)
     # model = model.to('cuda')
     # model = model.cpu()

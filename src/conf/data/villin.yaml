@@ -1,0 +1,49 @@
+name: villin
+# dir: ${oc.env:PROTEIN_DATASET_DIR}
+dir: /home/ttunjic/Protein_Data/Villin/DESRES-Trajectory_2F4K-0-protein/protein_train
+# dir: /home/ttunjic/Protein_Data/Trp-cage/DESRES-Trajectory_2JOF-0-protein/protein_train
+# dir: /home/ttunjic/Protein_Data/NTL9/DESRES-Trajectory_NTL9-3-protein/protein_train
+# dir: D:/PROTEIN-FOLDING-DATA/Chignolin/DESRES-Trajectory_CLN025-0-protein/No_center_no_superpose
+batch_size: 10
+traj_len: 10000
+shuffle: True
+
+
+datamodule:
+  # _target_: src.data.datamodule.PLDataModule
+
+  datasets:
+
+    train:
+      _target_: src.data.ProteinDataset
+      split: ${oc.env:PROJECT_ROOT}/data/train_villin.txt
+      directory: ${data.dir}
+      dilation: ${model.dilation}
+      seq_len: ${model.seq_len}
+      traj_len: ${data.traj_len}
+
+    val:
+      _target_: src.data.ProteinDataset
+      split: ${oc.env:PROJECT_ROOT}/data/val.txt 
+      directory: ${data.dir}
+      dilation: ${model.dilation}
+      seq_len: ${model.seq_len}
+      traj_len: ${data.traj_len}
+  
+    test:
+      _target_: src.data.ProteinDataset
+      split: ${oc.env:PROJECT_ROOT}/data/test_villin.txt 
+      directory: ${data.dir}
+      dilation: ${model.dilation}
+      seq_len: ${model.seq_len}
+      traj_len: ${data.traj_len}
+  
+  num_workers:
+    train: 4
+    val: 4
+    test: 4
+
+  batch_size:
+    train: ${data.batch_size}
+    val: ${data.batch_size}
+    test: ${data.batch_size}
