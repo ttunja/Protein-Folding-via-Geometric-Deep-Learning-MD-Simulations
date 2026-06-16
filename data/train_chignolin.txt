@@ -30,8 +30,3 @@ traj_29
 traj_30
 traj_31
 traj_32
-traj_33
-traj_34
-traj_35
-traj_36
-traj_37

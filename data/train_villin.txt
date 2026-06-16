@@ -6,6 +6,7 @@ traj_4
 traj_5
 traj_6
 traj_7
+traj_8
 traj_9
 traj_10
 traj_11
@@ -41,9 +42,3 @@ traj_40
 traj_41
 traj_42
 traj_43
-traj_44
-traj_45
-traj_46
-traj_47
-traj_48
-traj_49

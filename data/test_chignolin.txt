@@ -8,9 +8,3 @@ traj_44
 traj_45
 traj_46
 traj_47
-traj_48
-traj_49
-traj_50
-traj_51
-traj_52
-traj_53

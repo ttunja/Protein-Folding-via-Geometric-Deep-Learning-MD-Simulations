@@ -1,6 +1,3 @@
-traj_80
-traj_81
-traj_82
 traj_83
 traj_84
 traj_85
@@ -19,3 +16,7 @@ traj_97
 traj_98
 traj_99
 traj_100
+traj_101
+traj_102
+traj_103
+traj_104

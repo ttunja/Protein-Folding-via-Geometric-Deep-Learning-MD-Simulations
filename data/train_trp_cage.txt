@@ -71,10 +71,3 @@ traj_69
 traj_70
 traj_71
 traj_72
-traj_73
-traj_74
-traj_75
-traj_76
-traj_77
-traj_78
-traj_79

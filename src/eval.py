@@ -20,7 +20,7 @@ from utils.utils import compute_distance_matrix, compute_weighted_rgs, KL_diverg
 from utils.visualizations import plot_scatter, KDE_scatter2d, plot_ramachandran
 from train import seed_everything
 
-def simulate_trajectory(cfg, dataloader, model):
+def simulate_trajectory(cfg, dataloader, model, device='cuda'):
     seed_everything(1)  # Set random seed for reproducibility
     rollout_len = cfg.rollout_length  # Use config for rollout length
     bead_collision_dist = 5
@@ -29,7 +29,7 @@ def simulate_trajectory(cfg, dataloader, model):
 
     last_cluster = 0
     outputs = []
-    
+
     logging.info("Starting trajectory simulation...")
 
     now = time.time()
@@ -38,7 +38,7 @@ def simulate_trajectory(cfg, dataloader, model):
     with torch.no_grad():
        # Extract only the first batch from dataloader
         batch = next(iter(dataloader))
-        batch = {feat_args: tensor.to('cuda') for feat_args, tensor in batch.items()}
+        batch = {feat_args: tensor.to(device) for feat_args, tensor in batch.items()}
 
         # Simulate trajectory
         output = model.simulate(batch, rollout_len - 30, 
@@ -378,17 +378,17 @@ def main(cfg: DictConfig) -> None:
                                  shuffle=cfg.shuffle, 
                                  collate_fn=dict_collate_fn, 
                                  num_workers=0)
-    # model_dir = os.getenv('MODEL_DIR')
     model_dir = cfg.model_dir
-    # model_dir = "/home/ttunjic/PROTEIN-FOLDING-MODELS/Chignolin/less_hparams_more_mp_steps"
-    model_path = f"{model_dir}/model_18"
-    model = torch.load(model_path)
-    # model = model.to('cuda')
-    # model = model.cpu()
+    device = cfg.get('device', 'cuda')
+    # prefer best model (early stopping), fall back to last epoch
+    model_path = f"{model_dir}/model_best" if os.path.exists(f"{model_dir}/model_best") else f"{model_dir}/model_18"
+    logging.info(f"Loading model from {model_path}")
+    model = torch.load(model_path, map_location=device)
+    model = model.to(device)
     model.eval()
 
     start_time = time.time()  # Start timing
-    rollout = simulate_trajectory(cfg, test_dataloader, model)
+    rollout = simulate_trajectory(cfg, test_dataloader, model, device=device)
     end_time = time.time()  # End timing
 
     # Calculate the elapsed time in minutes
@@ -398,5 +398,5 @@ def main(cfg: DictConfig) -> None:
     logging.info(f"Time taken to run simulate_trajectory: {elapsed_time_minutes:.2f} minutes")
 
 if __name__=="__main__":
-    import ipdb;ipdb.set_trace()
+    # import ipdb;ipdb.set_trace()
     main()

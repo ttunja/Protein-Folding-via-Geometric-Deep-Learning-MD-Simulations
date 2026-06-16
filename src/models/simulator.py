@@ -28,6 +28,8 @@ class LearnedSimulator(nn.Module):
         sequence_len,
         noise_std,
         deterministic,
+        use_gru=True,
+        use_temporal=True,
         **kwargs
         ):
         """Inits the model.
@@ -69,12 +71,25 @@ class LearnedSimulator(nn.Module):
                                         **self.embedding_network_kwargs)
 
 
-        # rnn for velocity sequence
-        self.velocity_rnn = nn.RNN(input_size=3, hidden_size=87, num_layers=1)
-        self.velocity_out = nn.Linear(87, 87)
-
-        self.edges_rnn = nn.RNN(input_size=4, hidden_size=116, num_layers=1)
-        self.edges_out = nn.Linear(116, 4)
+        # temporal encoder for velocity and edge sequences.
+        # use_temporal=True: GRU/RNN consumes the past-frame sequence and we
+        #   pass the final hidden state to the downstream encoder.
+        # use_temporal=False: same 30-frame window is flattened and projected
+        #   with a single Linear layer; no recurrent encoding.
+        self.use_temporal = use_temporal
+        # the velocity sequence has length sequence_len-1 after differencing;
+        # the edge sequence has length sequence_len-1 with 4-d features each.
+        flat_vel_dim = (sequence_len - 1) * 3
+        flat_edge_dim = (sequence_len - 1) * 4
+        if use_temporal:
+            rnn_cls = nn.GRU if use_gru else nn.RNN
+            self.velocity_rnn = rnn_cls(input_size=3, hidden_size=87, num_layers=1)
+            self.velocity_out = nn.Linear(87, 87)
+            self.edges_rnn = rnn_cls(input_size=4, hidden_size=116, num_layers=1)
+            self.edges_out = nn.Linear(116, 4)
+        else:
+            self.velocity_out = nn.Linear(flat_vel_dim, 87)
+            self.edges_out = nn.Linear(flat_edge_dim, 4)
 
         self.type_embedding = nn.Embedding(num_particle_types, particle_type_embedding_size)
         nn.init.xavier_uniform_(self.type_embedding.weight)
@@ -95,10 +110,8 @@ class LearnedSimulator(nn.Module):
         self.property_head = build_mlp(input_size=self.embedding_network_kwargs.output_size, 
                                        **self.property_network_kwargs)
 
-        self.sigmas = torch.linspace(math.log(0.1), 
-                                    math.log(0.01), 
-                                    10).exp()#.to('cuda')
-        self.sigmas.requires_grad = False
+        sigmas = torch.linspace(math.log(0.1), math.log(0.01), 10).exp()
+        self.register_buffer('sigmas', sigmas)
         
 
     def forward(self):
@@ -107,15 +120,16 @@ class LearnedSimulator(nn.Module):
     def predict(self):
         raise NotImplementedError
 
-    def simulate(self, batch, rollout_length, 
+    def simulate(self, batch, rollout_length,
                deter=False, save_positions=False, save_frequency=1,
-               disable_bar=False):
+               disable_bar=False, max_vel=None):
         """
         simulate CGMD from a data batch of length <rollout_length>.
         deter:          if <True>, predict deterministically.
         save_positions: if <True>, save the rollout bead positions.
         save_frequency: frameskip when recording the trajectory.
         disable_bar:    if <True>, disable the progress bar.
+        max_vel:        if set, clamp velocity magnitude per bead per step.
         """
         output = {}
         position_seq, next_pos = batch['position'], batch['target']
@@ -143,7 +157,7 @@ class LearnedSimulator(nn.Module):
         all_props = []
         for t in tqdm(range(rollout_length), disable=disable_bar):
             next_pos_pred, prop_pred = self.predict(
-                position_seq, particle_type_embeddings, n_node, bonds, bond_types, weights)
+                position_seq, particle_type_embeddings, n_node, bonds, bond_types, weights, max_vel=max_vel)
             position_seq = torch.cat([position_seq[:, 1:], next_pos_pred.unsqueeze(1)], dim=1)
             if t % save_frequency == 0:
                 all_positions.append(next_pos_pred.detach().cpu().unsqueeze(1))
@@ -196,14 +210,13 @@ class LearnedSimulator(nn.Module):
         flat_vel_seq = torch.reshape(vel_seq, [vel_seq.shape[0], math.prod(vel_seq.shape[1:])])
 
         if vel_seq.shape[1]!=0:
-            rnn_out, _ = self.velocity_rnn(vel_seq)  
-            final_vel_out = self.velocity_out(rnn_out[:, -1, :]) 
-            # if self.hparams.use_weights and weights is not None:
-            #     node_features = torch.cat([flat_vel_seq, particle_type_embeddings, weights], dim=-1)
-            # # node_features = torch.cat([final_vel_out, particle_type_embeddings, weights], dim=-1)
-            # else:
-            #     node_features = torch.cat([flat_vel_seq, particle_type_embeddings], dim=-1)
-            node_features = torch.cat([final_vel_out, particle_type_embeddings], dim=-1)    
+            if getattr(self, 'use_temporal', True):
+                rnn_out, _ = self.velocity_rnn(vel_seq)
+                final_vel_out = self.velocity_out(rnn_out[:, -1, :])
+            else:
+                # Flatten the 30-frame velocity sequence and project linearly.
+                final_vel_out = self.velocity_out(flat_vel_seq)
+            node_features = torch.cat([final_vel_out, particle_type_embeddings], dim=-1)
         else:
             node_features = torch.cat([flat_vel_seq, particle_type_embeddings], dim=-1)
         most_recent_pos = position_seq[:, -1]
@@ -229,8 +242,13 @@ class LearnedSimulator(nn.Module):
             distance_seq = torch.cat(distance_seq_list, dim=1)
 
             combined_seq = torch.cat((displacement_seq, distance_seq), dim=2)
-            rnn_edges_out, _ = self.edges_rnn(combined_seq)  
-            final_edges_out = self.edges_out(rnn_edges_out[:, -1, :]) 
+            if getattr(self, 'use_temporal', True):
+                rnn_edges_out, _ = self.edges_rnn(combined_seq)
+                final_edges_out = self.edges_out(rnn_edges_out[:, -1, :])
+            else:
+                # Flatten the 29-step edge sequence (4 dims/step) and project.
+                flat_edge_seq = combined_seq.reshape(combined_seq.shape[0], -1)
+                final_edges_out = self.edges_out(flat_edge_seq)
 
             edge_embeddings = self.edge_type_embedding(edge_types)
             edge_features = torch.cat([final_edges_out, edge_embeddings], dim=-1)
@@ -243,7 +261,7 @@ class LearnedSimulator(nn.Module):
             nodes=node_features,
             edges=edge_features,
             edge_type=edge_types,
-            coords=None,
+            coords=position_seq[:, -1],
             globals=None,
             n_node=n_node,
             senders=senders,

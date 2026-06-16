@@ -1,10 +1,6 @@
 name: chignolin
 # dir: ${oc.env:PROTEIN_DATASET_DIR}
-dir: /home/ttunjic/Protein_Data/Chignolin/protein_train
-# dir: /home/ttunjic/Protein_Data/Villin/DESRES-Trajectory_2F4K-0-protein/protein_train
-# dir: /home/ttunjic/Protein_Data/Trp-cage/DESRES-Trajectory_2JOF-0-protein/protein_train
-# dir: /home/ttunjic/Protein_Data/NTL9/DESRES-Trajectory_NTL9-3-protein/protein_train
-# dir: D:/PROTEIN-FOLDING-DATA/Chignolin/DESRES-Trajectory_CLN025-0-protein/No_center_no_superpose
+dir: /home/ubuntu/data/PROTEIN-FOLDING-DATA/Chignolin/protein_train
 batch_size: 10
 traj_len: 10000
 shuffle: True
@@ -25,7 +21,7 @@ datamodule:
 
     val:
       _target_: src.data.ProteinDataset
-      split: ${oc.env:PROJECT_ROOT}/data/val.txt 
+      split: ${oc.env:PROJECT_ROOT}/data/val_chignolin.txt
       directory: ${data.dir}
       dilation: ${model.dilation}
       seq_len: ${model.seq_len}

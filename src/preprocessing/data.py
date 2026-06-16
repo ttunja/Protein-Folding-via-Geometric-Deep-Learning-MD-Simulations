@@ -16,27 +16,29 @@ class MDDataset(Dataset):
     dilation:          the time interval between each two sampled frame. 
     traj_len:          length of the whole trajectory to be loaded.
   """
-  def __init__(self, 
-               directory, 
-               split, 
+  def __init__(self,
+               directory,
+               split,
                mode='train',
-               seq_len=30, 
+               seq_len=30,
                dilation=1,
-               grouping=1, 
+               grouping=1,
                traj_len=10000,
-               recursive_metis=False
+               recursive_metis=False,
+               rollout_steps=1
                ):
     if isinstance(directory, str):
       directory = Path(directory)
     self.directory = directory
-    
+
     assert mode in ['rollout', 'train', 'oneshot']
     self.mode = mode
-    
+    self.rollout_steps = rollout_steps
+
     self.seq_len = seq_len
     if self.mode == 'train':
-      # +1 for count the target pos
-      self.seq_len += 1
+      # +rollout_steps for the target positions
+      self.seq_len += rollout_steps
     self.dilation = dilation
     self.grouping = grouping
     self.recursive_metis = recursive_metis
@@ -173,24 +175,27 @@ class ProteinDataset(MDDataset):
     # TODO comment out
     # positions = positions[:][:][:,non_hydrogen_ind]
     if self.mode == 'train':
-      input_pos = positions[:-1]  
-      input_rgs = rgs[:-1]
+      K = self.rollout_steps
+      input_pos = positions[:-(K)]
+      input_rgs = rgs[:-(K)]
+      # target_pos: for K=1 this is positions[-1], for K>1 it's positions[-K:]
+      target_pos = positions[-(K):]  # K x N x 3
     else:
       input_pos = positions
       input_rgs = rgs
-    target_pos = positions[-1]
-    target_rgs = rgs[-1]
+      target_pos = positions[-1:]  # 1 x N x 3
 
     tensor_dict.update({
         'position': np.array(input_pos, dtype=np.float32).transpose(1, 0, 2),  # N x T x dim
         'rgs': np.array(input_rgs, dtype=np.float32)[None, :],
-        'target': np.array(target_pos, dtype=np.float32),
-        'target_rgs': np.array([target_rgs], dtype=np.float32)[None, :],
+        'target': np.array(target_pos[0], dtype=np.float32),  # first target (backward compat)
         'particle_types': np.array(ptype, dtype=np.int64),
-        'n_particle': np.array([target_pos.shape[0]], dtype=np.int64),
-        # 'residue': np.array([residue], dtype=str),
+        'n_particle': np.array([target_pos.shape[1]], dtype=np.int64),
         'residue_num': np.array(residue_num, dtype=np.int64)
     })
+    if K > 1:
+      # store all K targets for multi-step training
+      tensor_dict['target_seq'] = np.array(target_pos, dtype=np.float32).transpose(1, 0, 2)  # N x K x 3
     
     # clustering use torch tensors.
     tensor_dict = {k: torch.from_numpy(v) for k, v in tensor_dict.items()}

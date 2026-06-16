@@ -7,8 +7,9 @@ shuffle: False
 save_pos: True
 save_frequency: 1
 grouping: 10
-model_dir: /home/ttunjic/PROTEIN-FOLDING-MODELS
-folded_protein: /home/ttunjic/Protein_Data/Folded Proteins/2rvd.pdb
+device: cuda
+model_dir: ${oc.env:MODEL_DIR}
+folded_protein: /home/ubuntu/data/PROTEIN-FOLDING-DATA/Chignolin/folded/2rvd.pdb
 save_dir: ${model_dir}
 
 ld_kwargs:
@@ -17,8 +18,7 @@ ld_kwargs:
 
 data:
   _target_: preprocessing.data.ProteinDataset
-  # directory: ${oc.env:PROTEIN_TEST_DATASET_DIR}
-  directory: ${oc.env:PROTEIN_DATASET_DIR}
+  directory: /home/ubuntu/data/PROTEIN-FOLDING-DATA/Chignolin/protein_train
   split: ${oc.env:PROJECT_ROOT}/data/test_chignolin.txt
   mode: rollout
   recursive_metis: False

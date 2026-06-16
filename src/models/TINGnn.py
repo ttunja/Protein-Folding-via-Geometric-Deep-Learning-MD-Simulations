@@ -155,6 +155,55 @@ class TemporalInteractionNetwork(nn.Module):
         graph = self._node_block(graph)
         return graph
 
+class EquivariantInteractionNetwork(nn.Module):
+    """E(n)-equivariant message passing layer (Satorras et al. 2021).
+
+    Separates scalar (invariant) and vector (equivariant) channels:
+    - Messages are computed from node features, edge features, and pairwise distances (invariant)
+    - Node features are updated via aggregated messages (invariant)
+    - Coordinates are updated via weighted coordinate differences (equivariant)
+    """
+    def __init__(self, edge_net_kwargs, node_net_kwargs, latent_size, reducer='sum'):
+        super().__init__()
+        self._edge_mlp = build_mlp(**edge_net_kwargs)
+        self._node_mlp = build_mlp(**node_net_kwargs)
+        # scalar weight for equivariant coordinate shift
+        self._coord_mlp = nn.Sequential(
+            nn.Linear(latent_size, latent_size),
+            nn.SiLU(),
+            nn.Linear(latent_size, 1, bias=False)
+        )
+        self._reducer = reducer
+
+    def forward(self, graph):
+        # pairwise displacement and squared distance (invariant scalar)
+        coord_diff = graph.coords[graph.senders] - graph.coords[graph.receivers]
+        dist_sq = (coord_diff ** 2).sum(dim=-1, keepdim=True)
+
+        # edge messages from [h_sender, h_receiver, edge_features, ||x_i - x_j||^2]
+        collected = torch.cat([
+            graph.nodes[graph.senders],
+            graph.nodes[graph.receivers],
+            graph.edges,
+            dist_sq
+        ], dim=-1)
+        messages = self._edge_mlp(collected)
+
+        # equivariant coordinate update: x_i' = x_i + sum_j (x_i - x_j) * phi(m_ij)
+        coord_weights = self._coord_mlp(messages)
+        coord_updates = scatter(coord_diff * coord_weights, graph.receivers, dim=0,
+                                dim_size=graph.nodes.shape[0], reduce=self._reducer)
+        new_coords = graph.coords + coord_updates
+
+        # invariant node update
+        agg_messages = scatter(messages, graph.receivers, dim=0,
+                               dim_size=graph.nodes.shape[0], reduce=self._reducer)
+        collected_nodes = torch.cat([graph.nodes, agg_messages], dim=-1)
+        updated_nodes = self._node_mlp(collected_nodes)
+
+        return graph.replace(nodes=updated_nodes, edges=messages, coords=new_coords)
+
+
 class GraphPooling(nn.Module):
   
     def __init__(self, 
@@ -182,19 +231,21 @@ class GraphPooling(nn.Module):
 
 class EncodeProcessDecode(nn.Module):
 
-    def __init__(self, 
-                 node_dim: int, 
-                 edge_dim: int, 
-                 hidden_size: int, 
-                 num_hidden_layers: int, 
-                 latent_size: int, 
-                 num_message_passing_steps: int, 
-                 output_size: int=3):
+    def __init__(self,
+                 node_dim: int,
+                 edge_dim: int,
+                 hidden_size: int,
+                 num_hidden_layers: int,
+                 latent_size: int,
+                 num_message_passing_steps: int,
+                 output_size: int=3,
+                 equivariant: bool=False):
         super().__init__()
         self._hidden_size = hidden_size
         self._num_hidden_layers = num_hidden_layers
         self._latent_size = latent_size
         self._num_message_passing_steps = num_message_passing_steps
+        self._equivariant = equivariant
 
         self._net_kwargs = {
             'hidden_size': hidden_size,
@@ -207,33 +258,50 @@ class EncodeProcessDecode(nn.Module):
         'hidden_size': hidden_size,
         'num_hidden_layers': num_hidden_layers,
         'output_size': output_size
-        }   
+        }
 
         self._encode = GraphIndependent(
-            edge_net_kwargs=dict(input_size=edge_dim, **self._net_kwargs), 
+            edge_net_kwargs=dict(input_size=edge_dim, **self._net_kwargs),
             node_net_kwargs=dict(input_size=node_dim, **self._net_kwargs))
-        self._process = nn.ModuleList([
-            TemporalInteractionNetwork(
-                edge_net_kwargs=dict(input_size=latent_size * 3, **self._net_kwargs), 
-                node_net_kwargs=dict(input_size=latent_size * 2, **self._net_kwargs))
-            for _ in range(self._num_message_passing_steps)
-        ])
+
+        if self._equivariant:
+            # EGNN processor: edge MLP gets [h_sender, h_receiver, edge_feat, dist^2]
+            # so input_size = latent_size * 3 + 1
+            self._process = nn.ModuleList([
+                EquivariantInteractionNetwork(
+                    edge_net_kwargs=dict(input_size=latent_size * 3 + 1, **self._net_kwargs),
+                    node_net_kwargs=dict(input_size=latent_size * 2, **self._net_kwargs),
+                    latent_size=latent_size)
+                for _ in range(self._num_message_passing_steps)
+            ])
+        else:
+            self._process = nn.ModuleList([
+                TemporalInteractionNetwork(
+                    edge_net_kwargs=dict(input_size=latent_size * 3, **self._net_kwargs),
+                    node_net_kwargs=dict(input_size=latent_size * 2, **self._net_kwargs))
+                for _ in range(self._num_message_passing_steps)
+            ])
 
         self._decode = build_mlp(**self._out_net_kwargs)
 
     def forward(self, input_graph, return_latent=False):
-        
+
         if input_graph.globals is not None:
             input_graph = input_graph.replace(
                 nodes=torch.cat([input_graph.nodes, torch.repeat_interleave(
-                                    input_graph.globals, input_graph.n_node, dim=0)], dim=1), 
+                                    input_graph.globals, input_graph.n_node, dim=0)], dim=1),
                 globals=None)
         latent_graph = self._encode(input_graph)
-        
+
+        # carry coordinates through for equivariant layers
+        if getattr(self, '_equivariant', False):
+            latent_graph = latent_graph.replace(coords=input_graph.coords)
+
         # Process
         for process_layer in self._process:
             _latent_graph = process_layer(latent_graph)
-            # residual connection
+            # residual connection on node/edge features (not on coords -
+            # EGNN coordinate updates are already additive within the layer)
             _latent_graph = _latent_graph.replace(
                 nodes=_latent_graph.nodes+latent_graph.nodes,
                 edges=_latent_graph.edges+latent_graph.edges)
