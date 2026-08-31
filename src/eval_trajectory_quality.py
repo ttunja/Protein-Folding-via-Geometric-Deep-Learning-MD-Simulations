@@ -216,14 +216,19 @@ def evaluate_protein(protein_name: str, output_dir: str, rollout_length: int = 2
     pred_bonds = compute_bond_lengths(pred_pos).flatten()
     pred_collisions = compute_collision_rate(pred_pos)
 
-    # print stats
-    logging.info(f'\n  Bond lengths (consecutive beads):')
-    logging.info(f'    MD:    mean={md_bonds.mean():.2f} ± {md_bonds.std():.2f} Å')
-    logging.info(f'    Model: mean={pred_bonds.mean():.2f} ± {pred_bonds.std():.2f} Å')
+    # print stats. The extremes are reported alongside the means because the
+    # distributions are right-skewed, so the mean alone hides where the model
+    # and the reference actually part company.
+    logging.info(f'\n  Consecutive bead distance:')
+    for name, b in (('MD   ', md_bonds), ('Model', pred_bonds)):
+        counts, edges = np.histogram(b.ravel(), bins=60)
+        peak = edges[np.argmax(counts)]
+        logging.info(f'    {name}: mean={b.mean():.2f} ± {b.std():.2f} Å  '
+                     f'peak={peak:.2f}  min={b.min():.2f}  max={b.max():.2f}')
 
     logging.info(f'\n  Collision rate (d < 3Å):')
-    logging.info(f'    MD:    mean={md_collisions.mean():.4f}')
-    logging.info(f'    Model: mean={pred_collisions.mean():.4f}')
+    for name, c in (('MD   ', md_collisions), ('Model', pred_collisions)):
+        logging.info(f'    {name}: mean={c.mean():.4f}  max={c.max():.4f}')
 
     logging.info(f'\n  Ramachandran angles:')
     logging.info(f'    MD:    φ mean={md_phi.mean():.1f}°, ψ mean={md_psi.mean():.1f}°')
@@ -250,7 +255,9 @@ def evaluate_protein(protein_name: str, output_dir: str, rollout_length: int = 2
                label=f'MD mean ({md_bonds_mean:.2f} Å)')
     ax.set_xlabel('Consecutive bead distance (Å)')
     ax.set_ylabel('Density')
-    ax.set_title('(a) Bond length distribution')
+    # not "bond length": a bead is a residue centre of mass, not a backbone atom,
+    # so this distance is longer and more variable than a covalent bond
+    ax.set_title('(a) Consecutive bead distance')
     ax.legend(loc='upper right')
     ax.grid(True, alpha=0.25)
 
@@ -276,7 +283,8 @@ def evaluate_protein(protein_name: str, output_dir: str, rollout_length: int = 2
                     color=MD_COLOR, alpha=0.12, label='MD ±1σ', zorder=0)
     ax.set_xlabel('Time (μs)')
     ax.set_ylabel('Collision rate (fraction of bead pairs)')
-    ax.set_title('(b) Bead collision rate')
+    # name the threshold in the title: at 5 Å the backbone neighbours dominate
+    ax.set_title('(b) Bead collision rate ($d < 3$ Å)')
     ax.legend(loc='upper right')
     ax.grid(True, alpha=0.25)
     ax.set_ylim(bottom=0)

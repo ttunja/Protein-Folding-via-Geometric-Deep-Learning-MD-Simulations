@@ -22,6 +22,23 @@ THESIS_PALETTE = [
 MD_COLOR = '#222222'   # near-black for MD reference
 MODEL_COLOR = '#d62728'  # red for the model in single-line plots
 
+BAND_COLOR = '#9aa0a6'     # grey for the ensemble band
+MEDIAN_COLOR = '#3a3f45'   # dark grey for the ensemble median
+HIGHLIGHT_COLOR = '#c0392b'  # single highlighted rollout
+
+
+def distinct_colors(n):
+    """Return n visually distinct colours, never reusing one.
+
+    THESIS_PALETTE has 8 entries, so indexing it modulo its length silently
+    draws two different series in the same colour once n exceeds 8. This falls
+    back to a continuous colormap in that case instead.
+    """
+    if n <= len(THESIS_PALETTE):
+        return list(THESIS_PALETTE[:n])
+    cmap = plt.get_cmap('turbo')
+    return [cmap(v) for v in np.linspace(0.05, 0.95, n)]
+
 
 def apply_thesis_style():
     plt.rcParams.update({

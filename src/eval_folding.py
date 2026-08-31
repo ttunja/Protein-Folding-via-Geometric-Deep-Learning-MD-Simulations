@@ -273,7 +273,8 @@ def run_folding_test(protein_name: str, model_path: str, n_rollouts: int = 10,
     # plot
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        from utils.plot_style import apply_thesis_style, plot_with_smooth, THESIS_PALETTE
+        from utils.plot_style import (apply_thesis_style, smooth, distinct_colors,
+                                      BAND_COLOR, MEDIAN_COLOR, HIGHLIGHT_COLOR)
         apply_thesis_style()
 
         fig, axes = plt.subplots(2, 2, figsize=(13, 8.5))
@@ -283,73 +284,86 @@ def run_folding_test(protein_name: str, model_path: str, n_rollouts: int = 10,
         # Use lighter smoothing so transient folding dips below the threshold are still visible.
         SMOOTH_FRAC = 0.012  # ~120 frames for a 10000-step rollout
 
+        # Ten overlaid traces are unreadable, so panels (a) to (c) show the whole
+        # ensemble as a min-max band with its median, and pick out one
+        # representative rollout: the one whose min RMSD is closest to the median.
+        med_min_rmsd = float(np.median([r['min_rmsd'] for r in results]))
+        rep = int(np.argmin([abs(r['min_rmsd'] - med_min_rmsd) for r in results]))
+        rep_label = f'rollout {rep+1} (representative)'
+
+        def band_panel(ax, series_list, x, ylabel, title, rep_idx=rep,
+                       band_label='all rollouts (range)'):
+            """Draw min-max band, median, and one highlighted trace."""
+            sm = np.vstack([smooth(s, frac=SMOOTH_FRAC) for s in series_list])
+            ax.fill_between(x, sm.min(axis=0), sm.max(axis=0),
+                            color=BAND_COLOR, alpha=0.30, lw=0, zorder=1,
+                            label=band_label)
+            ax.plot(x, np.median(sm, axis=0), color=MEDIAN_COLOR, lw=1.8,
+                    zorder=3, label='median rollout')
+            ax.plot(x, series_list[rep_idx], color=HIGHLIGHT_COLOR, alpha=0.16,
+                    lw=0.7, zorder=4)
+            ax.plot(x, sm[rep_idx], color=HIGHLIGHT_COLOR, lw=2.0, zorder=5,
+                    label=rep_label)
+            ax.set_xlabel('Time (μs)')
+            ax.set_ylabel(ylabel)
+            ax.set_title(title)
+            ax.grid(True, alpha=0.25)
+            return sm
+
         ax = axes[0, 0]
-        for i, r in enumerate(results):
-            plot_with_smooth(ax, x_us, r['rmsds'],
-                             color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
-                             label=f'rollout {i+1}',
-                             frac=SMOOTH_FRAC,
-                             alpha_raw=0.10, lw_smooth=1.3)
-            # mark the best (lowest-RMSD) frame for each rollout
-            best_idx = int(np.argmin(r['rmsds']))
-            ax.scatter(x_us[best_idx], r['rmsds'][best_idx],
-                       s=42, color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
-                       edgecolor='black', linewidth=0.8, zorder=10)
+        band_panel(ax, [r['rmsds'] for r in results], x_us,
+                   'RMSD to native (Å)',
+                   f'(a) RMSD trajectory  ({n_folded} folded, {n_border} borderline)')
+        # mark the best (lowest-RMSD) frame of the representative rollout
+        best_idx = int(np.argmin(results[rep]['rmsds']))
+        ax.scatter(x_us[best_idx], results[rep]['rmsds'][best_idx],
+                   s=60, color=HIGHLIGHT_COLOR, edgecolor='black', linewidth=0.9,
+                   zorder=10, label='best frame of that rollout')
         ax.axhline(thresh_fold, color='#2a9d2a', ls='--', lw=1.6,
                    label=f'folded ($\\leq${thresh_fold} Å)')
         ax.axhline(thresh_border, color='#c4a000', ls=':', lw=1.6,
                    label=f'borderline ($\\leq${thresh_border} Å)')
-        ax.set_xlabel('Time (μs)')
-        ax.set_ylabel('RMSD to native (Å)')
-        ax.set_title(f'(a) RMSD trajectory  ({n_folded} folded, {n_border} borderline)')
         ax.legend(loc='upper right', ncol=2, fontsize=8)
-        ax.grid(True, alpha=0.25)
 
-        ax = axes[0, 1]
-        for i, r in enumerate(results):
-            plot_with_smooth(ax, x_us, r['rg_vals'],
-                             color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
-                             label=None, frac=SMOOTH_FRAC,
-                             alpha_raw=0.10, lw_smooth=1.3)
-        ax.set_xlabel('Time (μs)')
-        ax.set_ylabel('$R_g$ (Å)')
-        ax.set_title('(b) Radius of gyration')
-        ax.grid(True, alpha=0.25)
+        band_panel(axes[0, 1], [r['rg_vals'] for r in results], x_us,
+                   '$R_g$ (Å)', '(b) Radius of gyration')
+        axes[0, 1].legend(loc='upper right', fontsize=8)
 
         ax = axes[1, 0]
-        for i, r in enumerate(results):
-            frames, qs = zip(*r['q_vals'])
-            x_q = np.array(frames) * 200e-6
-            plot_with_smooth(ax, x_q, np.array(qs),
-                             color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
-                             label=None, frac=SMOOTH_FRAC,
-                             alpha_raw=0.10, lw_smooth=1.3)
+        q_frames = np.array([f for f, _ in results[0]['q_vals']])
+        band_panel(ax, [np.array([q for _, q in r['q_vals']]) for r in results],
+                   q_frames * 200e-6, '$Q$ (native contacts)',
+                   '(c) Fraction of native contacts')
         ax.axhline(0.7, color='#2a9d2a', ls='--', lw=1.6,
                    label='$Q\\geq 0.7$')
-        ax.set_xlabel('Time (μs)')
-        ax.set_ylabel('$Q$ (native contacts)')
-        ax.set_title('(c) Fraction of native contacts')
-        ax.legend(loc='lower right')
-        ax.grid(True, alpha=0.25)
+        ax.legend(loc='lower right', fontsize=8)
         ax.set_ylim(-0.02, 1.05)
 
+        # Panel (d) has one point per rollout, so distinct colours are readable
+        # here. distinct_colors never reuses a colour, unlike indexing the
+        # 8-entry palette modulo its length.
         ax = axes[1, 1]
+        colors = distinct_colors(len(results))
         for i, r in enumerate(results):
             ax.scatter([r['min_rmsd']], [r['q_at_best']],
-                       s=140, color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
+                       s=140, color=colors[i],
                        edgecolor='black', linewidth=1.0, zorder=5,
                        label=f'rollout {i+1}')
-        # shade the folded region
-        ymin, ymax = 0.7, 1.05
-        ax.axvspan(0, thresh_fold, ymin=(ymin - 0.0) / 1.1, ymax=(ymax - 0.0) / 1.1,
-                   color='#2a9d2a', alpha=0.10, zorder=0)
+        # Shade the folded region, meaning RMSD <= threshold and Q >= 0.7 together.
+        # fill_between takes data coordinates on both axes. axvspan would not: its
+        # ymin/ymax are fractions of the axes height, so passing Q values there
+        # placed the band at the wrong height.
+        ax.fill_between([0, thresh_fold], 0.7, 1.05,
+                        color='#2a9d2a', alpha=0.10, lw=0, zorder=0)
         ax.axvline(thresh_fold, color='#2a9d2a', ls='--', lw=1.6,
                    label=f'folded RMSD ($\\leq${thresh_fold} Å)')
         ax.axhline(0.7, color='#2a9d2a', ls=':', lw=1.6,
                    label='$Q\\geq 0.7$')
         ax.set_xlabel('Minimum RMSD (Å)')
         ax.set_ylabel('$Q$ at best frame')
-        ax.set_title('(d) RMSD vs.\\ $Q$ at best frame')
+        # plain "vs." here: this is a matplotlib title, not LaTeX, so the
+        # thin-space escape used in the thesis text would be printed literally
+        ax.set_title('(d) RMSD vs. $Q$ at best frame')
         ax.legend(loc='lower left', ncol=1, fontsize=9)
         ax.grid(True, alpha=0.25)
         ax.set_xlim(left=max(0, min(r['min_rmsd'] for r in results) - 0.3),

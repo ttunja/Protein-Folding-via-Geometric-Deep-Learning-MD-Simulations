@@ -12,3 +12,11 @@ D:/
 docs/
 thesis/
 Thesis_protein_folding.zip
+
+# LaTeX build products of the standalone figure sources in src/figures
+*.aux
+*.log
+# rollout output written by the eval scripts, regenerated on demand
+src/figures/folding_out/
+src/figures/quality_out/
+src/figures/ablation_out/
