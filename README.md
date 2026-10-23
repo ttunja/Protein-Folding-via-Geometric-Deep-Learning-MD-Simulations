@@ -98,11 +98,11 @@ Folding times from Lindorff-Larsen et al. (2011), Science 334, 517.
 
 ## Key Results
 
-- Chignolin folds to within 2 A RMSD of the native state in 2 out of 5 rollouts from unfolded conformations.
-- Multi-step training (K=5 rollout steps during training) is critical for stable autoregressive rollout; single-step models diverge within hundreds of frames.
-- The GRU temporal encoder is the main driver of rollout stability -- it reduces mean trajectory error from 7.1 A (vanilla RNN) to 0.46 A.
-- A combined model trained jointly on all four proteins generalizes zero-shot to unseen proteins (NTL9, WW domain, Protein B), producing physically plausible trajectories with correct bond length distributions and low collision rates.
+- With multi-step training (K=5), the model folds Chignolin from an unfolded state in 7 of 10 rollouts of 10,000 steps (RMSD at most 2.0 A, best 0.96 A).
+- The GRU temporal encoder is the only variant that stays stable in all 15 rollouts of the 500-step ablation. Equivariant (EGNN) message passing destabilizes rollouts.
+- Single-step validation loss does not predict rollout quality: the variant without temporal encoding has the lowest validation loss but reaches the borderline range in only 2 of 10 long rollouts, against 9 of 10 for the GRU.
+- None of the larger proteins folds. Trp-cage reaches the borderline range in every rollout, BBA and Villin stay further from native. The jointly trained model runs zero-shot on NTL9, the WW domain and Protein B without diverging, and 5 of its 9 rollouts are borderline.
 
 ## Citation
 
-Master's Thesis, TU Wien, 2025. Tin M. Tunjic, supervised by Thomas Gartner.
+Master's Thesis, TU Wien, 2026. Tin M. Tunjic, supervised by Thomas Gartner.
