@@ -44,13 +44,13 @@ FOLDING_THRESHOLDS = {
     'protein_b': {'folded': 5.0, 'borderline': 7.0, 'n_beads': 47},
 }
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 # per-rollout series are saved here as .npz
-# per-rollout series, read by summarize_folding_rows.py
 CACHE_DIR = os.path.join(HERE, 'figures', 'folding_out')
 
 DATA = '/home/ubuntu/data/PROTEIN-FOLDING-DATA'
 
-# native_pdb is the experimental structure, topology_pdb only reproduces old scores
+# native_pdb is the experimental structure, topology_pdb is the DESRES system file
 # native_map: (first simulated bead, first reference residue, number of residues)
 # center: NTL9, WW and Protein B positions are centered at load time
 PROTEIN_CONFIGS = {
@@ -191,7 +191,7 @@ def native_reference(protein_name: str):
 
 
 def topology_reference(protein_name: str):
-    """CG positions and distance matrix of topology_pdb, for the old scores."""
+    """CG positions and distance matrix of topology_pdb, over the same beads."""
     cfg = PROTEIN_CONFIGS[protein_name]
     sim_first, _ref_first, n_res = cfg['native_map']
     return get_native_cg(cfg['topology_pdb'], sim_first, n_res)[:2]
@@ -459,7 +459,7 @@ def run_folding_test(protein_name: str, model_path: str, n_rollouts: int = 10,
         borderline = not folded and min_rmsd <= thresh_border
         status = 'FOLDED' if folded else ('BORDERLINE' if borderline else 'not folded')
 
-        # scores against topology_pdb, for comparison with old runs
+        # scores against topology_pdb, for comparison
         topo_rmsd = kabsch_rmsd_frames(pred.permute(1, 0, 2), topo_cg)
         topo_frame = int(topo_rmsd.argmin())
         topo_q = compute_native_contacts(pred[:, topo_frame], topo_dm)
