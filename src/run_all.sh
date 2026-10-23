@@ -114,7 +114,7 @@ run_eval() {
     log "  [$LABEL] $PROTEIN, ${STEPS} steps, ${NROLL} rollouts..."
     python eval_folding.py --protein "$PROTEIN" \
         --model_path "$MPATH" --rollout_length "$STEPS" --n_rollouts "$NROLL" \
-        --output_dir "$OUTDIR" 2>&1 | tee "$LOGF"
+        --cache_dir "$OUTDIR" 2>&1 | tee "$LOGF"
 }
 
 # Trp-cage multistep own model

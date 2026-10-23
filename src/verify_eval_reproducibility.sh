@@ -32,7 +32,7 @@ run_eval() {
     log ">>> [$LABEL] $PROTEIN @ ${STEPS} steps x ${NROLL} rollouts"
     python eval_folding.py --protein "$PROTEIN" \
         --model_path "$MPATH" --rollout_length "$STEPS" --n_rollouts "$NROLL" \
-        --output_dir "$OUT/${LABEL}" 2>&1 | tee "$LOGF" > /dev/null
+        --cache_dir "$OUT/${LABEL}" 2>&1 | tee "$LOGF" > /dev/null
     if grep -q "SUMMARY" "$LOGF"; then
         grep "Min RMSD\|Mean Q\|Folded:" "$LOGF" | tee -a "$SUMMARY"
         log "<<< [$LABEL] done"

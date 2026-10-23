@@ -31,7 +31,7 @@ import time
 
 import torch
 
-from eval_folding import PROTEIN_CONFIGS, build_batch, find_unfolded_start, get_native_cg
+from eval_folding import PROTEIN_CONFIGS, build_batch, find_unfolded_start, native_reference
 
 # spacing of the recorded DESRES frames, which is what one model step advances by
 PS_PER_FRAME = 200.0
@@ -62,16 +62,17 @@ def time_rollout(model, batch, steps, max_vel=3.0):
 
 def benchmark(protein, model_path, steps, repeats, warmup_steps=100):
     cfg = PROTEIN_CONFIGS[protein]
-    _, _, n_beads = get_native_cg(cfg['native_pdb'])
+    center = cfg.get('center', False)
+    _, _, n_beads, _ = native_reference(protein)
 
     traj_name, start_frame, _ = find_unfolded_start(
-        cfg['data_dir'], cfg['test_trajs'], n_beads)[0]
+        cfg['data_dir'], cfg['test_trajs'], n_beads, center=center)[0]
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = torch.load(model_path, map_location=device, weights_only=False)
     model.eval()
 
-    batch = build_batch(cfg['data_dir'], traj_name, start_frame, n_beads)
+    batch = build_batch(cfg['data_dir'], traj_name, start_frame, n_beads, center)
     batch = {k: v.to(device) for k, v in batch.items()}
 
     time_rollout(model, batch, warmup_steps)          # not timed

@@ -19,15 +19,13 @@ import os
 import logging
 import numpy as np
 import torch
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
 from utils.utils import compute_weighted_rgs, compute_com, compute_distance_matrix
 from utils.utils import compute_ramachandran_angles
 from preprocessing.preprocessing_utils import load_data
 from train import seed_everything
-import prody
+import eval_folding
+from eval_folding import native_reference, check_reference, load_traj, cg_traj
 
 
 # reference folding times from Lindorff-Larsen et al. 2011
@@ -48,31 +46,28 @@ REFERENCE = {
                   'rmsd_threshold': 5.0, 'q_threshold': 0.7},
 }
 
+# native structures and centering come from eval_folding.PROTEIN_CONFIGS
 PROTEIN_CONFIGS = {
     'chignolin': {
         'data_dir': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Chignolin/protein_train',
-        'native_pdb': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Chignolin/folded/2rvd.pdb',
         'model_path': '/home/ubuntu/models/PROTEIN-FOLDING-MODELS/Chignolin/chignolin_gru_only/model_best',
         'test_trajs': [f'traj_{i}' for i in range(38, 48)],
         'n_beads': 10,
     },
     'trp_cage': {
         'data_dir': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Trp-cage/protein_train',
-        'native_pdb': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Trp-cage/topology.pdb',
         'model_path': '/home/ubuntu/models/PROTEIN-FOLDING-MODELS/Trp-cage/trp_cage_gru_only/model_best',
         'test_trajs': [f'traj_{i}' for i in range(83, 98)],
         'n_beads': 20,
     },
     'bba': {
         'data_dir': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/BBA/protein_train',
-        'native_pdb': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/BBA/topology.pdb',
         'model_path': '/home/ubuntu/models/PROTEIN-FOLDING-MODELS/BBA/bba_gru_only/model_best',
         'test_trajs': [f'traj_{i}' for i in range(89, 105)],
         'n_beads': 28,
     },
     'villin': {
         'data_dir': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Villin/protein_train',
-        'native_pdb': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Villin/topology.pdb',
         'model_path': '/home/ubuntu/models/PROTEIN-FOLDING-MODELS/Villin/villin_gru_only/model_best',
         'test_trajs': [f'traj_{i}' for i in range(44, 58)],
         'n_beads': 35,
@@ -80,21 +75,18 @@ PROTEIN_CONFIGS = {
     # unseen proteins - auto-discover trajectories
     'ntl9': {
         'data_dir': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/NTL9/protein_train',
-        'native_pdb': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/NTL9/topology.pdb',
         'model_path': '/home/ubuntu/models/PROTEIN-FOLDING-MODELS/Combined/combined_gru_multistep/model_best',
         'test_trajs': None,
         'n_beads': 39,
     },
     'ww': {
         'data_dir': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/WW/protein_train',
-        'native_pdb': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/WW/topology.pdb',
         'model_path': '/home/ubuntu/models/PROTEIN-FOLDING-MODELS/Combined/combined_gru_multistep/model_best',
         'test_trajs': None,
         'n_beads': 35,
     },
     'protein_b': {
         'data_dir': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Protein_B/protein_train',
-        'native_pdb': '/home/ubuntu/data/PROTEIN-FOLDING-DATA/Protein_B/topology.pdb',
         'model_path': '/home/ubuntu/models/PROTEIN-FOLDING-MODELS/Combined/combined_gru_multistep/model_best',
         'test_trajs': None,
         'n_beads': 47,
@@ -131,62 +123,24 @@ def compute_Q(pos: torch.Tensor, native_dm: torch.Tensor,
     return formed / len(native_contacts)
 
 
-def get_native_cg(pdb_path: str):
-    topo = prody.parsePDB(pdb_path)
-    native_pos = torch.tensor(topo.getCoords(), dtype=torch.float32).unsqueeze(1)
-    native_cluster = torch.tensor(topo.getResnums() - topo.getResnums().min(), dtype=torch.long)
-    native_cg, _ = compute_com(native_pos, torch.ones(native_pos.shape[0]), native_cluster)
-    native_cg = native_cg[:, 0, :]
-    native_dm = compute_distance_matrix(native_cg)
-    return native_cg, native_dm, native_cg.shape[0]
+def _center(protein_name):
+    return eval_folding.PROTEIN_CONFIGS[protein_name].get('center', False)
 
 
-def build_batch(data_dir, traj_name, start_frame, n_beads):
-    tp = os.path.join(data_dir, traj_name)
-    position = np.array(load_data(['position'], f'{tp}/position.h5')[0], dtype=np.float32)
-    ptype = load_data(['particle_type'], f'{tp}/ptype.h5')[0]
-    bonds = load_data(['bond_indices'], f'{tp}/bond.h5')[0]
-    rgs_data = load_data(['rgs'], f'{tp}/rgs.h5')[0]
-    residue_num = load_data(['residue_num'], f'{tp}/residue_num.h5')[0]
-    cluster = torch.tensor(residue_num - min(residue_num), dtype=torch.long)
-
-    sel = np.arange(start_frame, start_frame + 31)
-    rev_bonds = np.concatenate([bonds[:, 1:], bonds[:, :1]], axis=1)
-    ab = torch.tensor(np.concatenate([bonds, rev_bonds], axis=0), dtype=torch.long)
-    row, col = ab[:, 0], ab[:, 1]
-    boundary = cluster[row] != cluster[col]
-    cg_bonds = torch.unique(
-        torch.cat([cluster[row[boundary]][:, None], cluster[col[boundary]][:, None]], dim=1), dim=0)
-
-    return {
-        'position': torch.tensor(position[sel[:-1]], dtype=torch.float32).permute(1, 0, 2),
-        'target': torch.tensor(position[sel[-1]], dtype=torch.float32),
-        'particle_types': torch.tensor(ptype, dtype=torch.long),
-        'n_particle': torch.tensor([ptype.shape[0]], dtype=torch.long),
-        'bonds': ab, 'n_bond': torch.tensor([ab.shape[0]], dtype=torch.long),
-        'rgs': torch.tensor(rgs_data[sel[:-1]], dtype=torch.float32).unsqueeze(0),
-        'residue_num': torch.tensor(residue_num, dtype=torch.long),
-        'n_keypoint': torch.tensor([n_beads], dtype=torch.long),
-        'cluster': cluster, 'cg_bonds': cg_bonds,
-        'n_cg_bond': torch.tensor([len(cg_bonds)], dtype=torch.long),
-    }
+def _test_trajs(cfg):
+    return eval_folding.list_trajs(cfg['data_dir'], cfg['test_trajs'])
 
 
-def find_unfolded_start(data_dir, test_trajs, n_beads):
+def find_unfolded_start(protein_name, n_beads):
     """Find the most unfolded 30-frame window."""
-    if test_trajs is None:
-        test_trajs = sorted([d for d in os.listdir(data_dir)
-                            if os.path.isdir(os.path.join(data_dir, d)) and d.startswith('traj_')])
+    cfg = PROTEIN_CONFIGS[protein_name]
+    test_trajs = _test_trajs(cfg)
     best_rg, best_traj, best_start = 0, test_trajs[0], 0
     for traj_name in test_trajs[:10]:
-        tp = os.path.join(data_dir, traj_name)
+        tp = os.path.join(cfg['data_dir'], traj_name)
         if not os.path.exists(f'{tp}/position.h5'):
             continue
-        position = np.array(load_data(['position'], f'{tp}/position.h5')[0], dtype=np.float32)
-        residue_num = load_data(['residue_num'], f'{tp}/residue_num.h5')[0]
-        cluster = torch.tensor(residue_num - min(residue_num), dtype=torch.long)
-        cg_pos, _ = compute_com(torch.tensor(position[:1000]).permute(1, 0, 2),
-                                torch.ones(position.shape[1]), cluster)
+        cg_pos = cg_traj(load_traj(tp, np.s_[:1000], _center(protein_name)))
         rgs = np.array([compute_weighted_rgs(cg_pos[:, t], torch.ones(n_beads),
                         torch.tensor([n_beads])).item() for t in range(cg_pos.shape[1])])
         for s in range(len(rgs) - 30):
@@ -237,34 +191,27 @@ def count_transitions(states, min_duration=5):
     return n_fold, n_unfold, transitions
 
 
-def get_md_reference(data_dir, test_trajs, n_beads, native_cg, native_dm,
-                     rmsd_thresh, q_thresh, n_frames=5000):
+def get_md_reference(protein_name, bead_idx, native_cg, native_dm, n_frames=5000):
     """Compute RMSD and Q traces from reference MD trajectories."""
-    if test_trajs is None:
-        test_trajs = sorted([d for d in os.listdir(data_dir)
-                            if os.path.isdir(os.path.join(data_dir, d)) and d.startswith('traj_')])
+    cfg = PROTEIN_CONFIGS[protein_name]
+    n_scored = len(bead_idx)
     md_rmsds, md_qs, md_rgs = [], [], []
-    for traj_name in test_trajs[:3]:
-        tp = os.path.join(data_dir, traj_name)
+    for traj_name in _test_trajs(cfg)[:3]:
+        tp = os.path.join(cfg['data_dir'], traj_name)
         if not os.path.exists(f'{tp}/position.h5'):
             continue
-        position = np.array(load_data(['position'], f'{tp}/position.h5')[0][:n_frames], dtype=np.float32)
-        residue_num = load_data(['residue_num'], f'{tp}/residue_num.h5')[0]
-        cluster = torch.tensor(residue_num - min(residue_num), dtype=torch.long)
-        cg_pos, _ = compute_com(torch.tensor(position).permute(1, 0, 2),
-                                torch.ones(position.shape[1]), cluster)
+        cg_pos = cg_traj(load_traj(tp, np.s_[:n_frames], _center(protein_name)))[bead_idx]
         for t in range(cg_pos.shape[1]):
             md_rmsds.append(compute_rmsd(cg_pos[:, t], native_cg))
-            md_rgs.append(compute_weighted_rgs(cg_pos[:, t], torch.ones(n_beads),
-                          torch.tensor([n_beads])).item())
+            md_rgs.append(compute_weighted_rgs(cg_pos[:, t], torch.ones(n_scored),
+                          torch.tensor([n_scored])).item())
             if t % 10 == 0:
                 md_qs.append(compute_Q(cg_pos[:, t], native_dm))
     return md_rmsds, md_qs, md_rgs
 
 
 def run_dynamics_analysis(protein_name: str, rollout_length: int = 10000,
-                          n_rollouts: int = 3, max_vel: float = 3.0,
-                          output_dir: str = None):
+                          n_rollouts: int = 3, max_vel: float = 3.0):
     """Full long-timescale dynamics analysis."""
     cfg = PROTEIN_CONFIGS[protein_name]
     ref = REFERENCE[protein_name]
@@ -282,23 +229,24 @@ def run_dynamics_analysis(protein_name: str, rollout_length: int = 10000,
     logging.info(f'  Folded: RMSD ≤ {rmsd_thresh} Å AND Q ≥ {q_thresh}')
     logging.info(f'{"="*70}')
 
-    native_cg, native_dm, n_beads = get_native_cg(cfg['native_pdb'])
+    native_cg, native_dm, n_beads, bead_idx = native_reference(protein_name)
+    n_scored = len(bead_idx)
+    check_reference(protein_name)
 
     # find unfolded start
-    traj_name, start_frame, start_rg = find_unfolded_start(
-        cfg['data_dir'], cfg['test_trajs'], n_beads)
+    traj_name, start_frame, start_rg = find_unfolded_start(protein_name, n_beads)
     logging.info(f'  Starting from {traj_name}@{start_frame}, Rg≈{start_rg:.1f} Å')
 
     # load model
     model = torch.load(cfg['model_path'], map_location='cpu', weights_only=False)
     model.eval()
-    batch = build_batch(cfg['data_dir'], traj_name, start_frame, n_beads)
+    batch = eval_folding.build_batch(cfg['data_dir'], traj_name, start_frame, n_beads,
+                                     _center(protein_name))
 
     # get MD reference
     logging.info('  Computing MD reference...')
     md_rmsds, md_qs, md_rgs = get_md_reference(
-        cfg['data_dir'], cfg['test_trajs'], n_beads, native_cg, native_dm,
-        rmsd_thresh, q_thresh, n_frames=min(rollout_length, 5000))
+        protein_name, bead_idx, native_cg, native_dm, n_frames=min(rollout_length, 5000))
 
     md_states = ['F' if r <= rmsd_thresh else 'U' for r in md_rmsds]
     md_folded_frac = sum(1 for s in md_states if s == 'F') / len(md_states)
@@ -315,13 +263,13 @@ def run_dynamics_analysis(protein_name: str, rollout_length: int = 10000,
         with torch.no_grad():
             out = model.simulate(b, rollout_length, save_positions=True, deter=False,
                                 save_frequency=1, disable_bar=True, max_vel=max_vel)
-        pred = out['rollout_u_pos'][:n_beads]
+        pred = out['rollout_u_pos'][:n_beads][bead_idx]
 
         rmsds, rg_vals, q_vals = [], [], []
         for t in range(pred.shape[1]):
             rmsds.append(compute_rmsd(pred[:, t], native_cg))
             rg_vals.append(compute_weighted_rgs(
-                pred[:, t], torch.ones(n_beads), torch.tensor([n_beads])).item())
+                pred[:, t], torch.ones(n_scored), torch.tensor([n_scored])).item())
             if t % 5 == 0:
                 q_vals.append(compute_Q(pred[:, t], native_dm))
             else:
@@ -364,20 +312,12 @@ def run_dynamics_analysis(protein_name: str, rollout_length: int = 10000,
     pred_phi, pred_psi = compute_ramachandran_angles(np.array(pred_first))
 
     # MD Ramachandran from test trajectories
-    test_trajs = cfg['test_trajs']
-    if test_trajs is None:
-        test_trajs = sorted([d for d in os.listdir(cfg['data_dir'])
-                            if os.path.isdir(os.path.join(cfg['data_dir'], d)) and d.startswith('traj_')])
     md_phi_all, md_psi_all = [], []
-    for traj_name in test_trajs[:3]:
+    for traj_name in _test_trajs(cfg)[:3]:
         tp = os.path.join(cfg['data_dir'], traj_name)
         if not os.path.exists(f'{tp}/position.h5'):
             continue
-        position = np.array(load_data(['position'], f'{tp}/position.h5')[0][:2000], dtype=np.float32)
-        residue_num = load_data(['residue_num'], f'{tp}/residue_num.h5')[0]
-        cluster = torch.tensor(residue_num - min(residue_num), dtype=torch.long)
-        cg_pos, _ = compute_com(torch.tensor(position).permute(1, 0, 2),
-                                torch.ones(position.shape[1]), cluster)
+        cg_pos = cg_traj(load_traj(tp, np.s_[:2000], _center(protein_name)))
         phi, psi = compute_ramachandran_angles(np.array(cg_pos))
         md_phi_all.extend(phi)
         md_psi_all.extend(psi)
@@ -396,79 +336,6 @@ def run_dynamics_analysis(protein_name: str, rollout_length: int = 10000,
     logging.info(f'  MD ref: {md_folded_frac*100:.0f}% folded, '
                  f'{md_folds}F/{md_unfolds}U transitions')
 
-    # PLOT
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-        from utils.plot_style import apply_thesis_style, plot_with_smooth, THESIS_PALETTE, MD_COLOR
-        apply_thesis_style()
-        fig, axes = plt.subplots(2, 2, figsize=(13, 8.5))
-
-        t_us = np.arange(rollout_length) * FRAME_DT_PS / 1e6
-
-        # (a) RMSD over time
-        ax = axes[0, 0]
-        for i, res in enumerate(all_results):
-            plot_with_smooth(ax, t_us, res['rmsds'],
-                             color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
-                             label=f'rollout {i+1}', frac=0.04)
-        ax.axhline(rmsd_thresh, color='#2a9d2a', ls='--', lw=1.6,
-                   label=f'folded ($\\leq${rmsd_thresh} Å)')
-        ax.set_xlabel('Time (μs)')
-        ax.set_ylabel('RMSD to native (Å)')
-        ax.set_title(f'(a) RMSD over time  (reference folding time {fold_time_us} μs)')
-        ax.legend(loc='upper right', ncol=2)
-        ax.grid(True, alpha=0.25)
-
-        # (b) Q over time
-        ax = axes[0, 1]
-        for i, res in enumerate(all_results):
-            plot_with_smooth(ax, t_us, res['q_vals'],
-                             color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
-                             label=None, frac=0.04)
-        ax.axhline(q_thresh, color='#2a9d2a', ls='--', lw=1.6,
-                   label=f'$Q\\geq{q_thresh}$')
-        ax.set_xlabel('Time (μs)')
-        ax.set_ylabel('$Q$ (fraction of native contacts)')
-        ax.set_title('(b) Native contacts over time')
-        ax.legend(loc='lower right')
-        ax.grid(True, alpha=0.25)
-        ax.set_ylim(-0.02, 1.05)
-
-        # (c) Rg over time
-        ax = axes[1, 0]
-        for i, res in enumerate(all_results):
-            plot_with_smooth(ax, t_us, res['rg_vals'],
-                             color=THESIS_PALETTE[i % len(THESIS_PALETTE)],
-                             label=None, frac=0.04)
-        ax.set_xlabel('Time (μs)')
-        ax.set_ylabel('$R_g$ (Å)')
-        ax.set_title('(c) Radius of gyration')
-        ax.grid(True, alpha=0.25)
-
-        # (d) Q distribution: model vs MD reference
-        ax = axes[1, 1]
-        all_q_model = np.concatenate([np.array(res['q_vals']) for res in all_results])
-        bins = np.linspace(0, 1.0, 25)
-        ax.hist(all_q_model, bins=bins, color=THESIS_PALETTE[0], alpha=0.55,
-                density=True, label='Model', edgecolor=THESIS_PALETTE[0])
-        if md_qs is not None and len(md_qs) > 0:
-            ax.hist(np.array(md_qs), bins=bins, color=MD_COLOR, alpha=0.55,
-                    density=True, label='MD reference', edgecolor=MD_COLOR)
-        ax.axvline(q_thresh, color='#2a9d2a', ls='--', lw=1.6,
-                   label=f'$Q\\geq{q_thresh}$')
-        ax.set_xlabel('$Q$ (fraction of native contacts)')
-        ax.set_ylabel('Density')
-        ax.set_title('(d) Distribution of $Q$: model vs.\\ MD')
-        ax.legend(loc='upper center')
-        ax.grid(True, alpha=0.25, axis='y')
-        ax.set_xlim(0, 1.0)
-
-        fig.tight_layout()
-        fig.savefig(os.path.join(output_dir, f'dynamics_{protein_name}.png'),
-                    bbox_inches='tight')
-        plt.close(fig)
-        logging.info(f'\n  Plot saved to {output_dir}/dynamics_{protein_name}.png')
-
     return all_results
 
 
@@ -484,8 +351,6 @@ if __name__ == '__main__':
                         help='Number of rollout steps (each = 200ps)')
     parser.add_argument('--n_rollouts', type=int, default=3)
     parser.add_argument('--max_vel', type=float, default=3.0)
-    parser.add_argument('--output_dir', type=str,
-                        default='/home/ubuntu/code/Protein-Folding-via-Geometric-Deep-Learning-MD-Simulations/docs/plots')
     args = parser.parse_args()
 
     proteins = list(PROTEIN_CONFIGS.keys()) if args.protein == 'all' else [args.protein]
@@ -495,6 +360,6 @@ if __name__ == '__main__':
             PROTEIN_CONFIGS[p]['model_path'] = args.model_path
         if os.path.exists(PROTEIN_CONFIGS[p]['model_path']):
             run_dynamics_analysis(p, args.rollout_length, args.n_rollouts,
-                                args.max_vel, args.output_dir)
+                                args.max_vel)
         else:
             logging.warning(f'Model not found for {p}: {PROTEIN_CONFIGS[p]["model_path"]}')
