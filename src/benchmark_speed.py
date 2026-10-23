@@ -1,22 +1,6 @@
 """Measure rollout throughput in frames per second, per protein.
 
-The simulation-speed table in the thesis is built on one measured quantity, the
-number of rollout frames the model produces per second of wall-clock time.
-Everything else in that table follows from it by arithmetic, so the number needs
-a source that can be re-run rather than being remembered from a run.
-
-Two details matter for the measurement to mean anything:
-
-  The first calls on a fresh CUDA context pay for kernel compilation and memory
-  allocation, so a short warm-up rollout runs first and is not timed.
-
-  CUDA kernels are launched asynchronously, so the Python call returns before
-  the GPU has finished. torch.cuda.synchronize is called on both sides of the
-  timed region, or the measurement would report launch time instead of compute
-  time.
-
-We report frames per second and the derived simulated time per second of
-wall-clock time, at 200 ps per frame.
+A warm-up rollout runs first, and CUDA is synchronized around the timed part.
 
 Usage:
     python benchmark_speed.py                       # all four training proteins
